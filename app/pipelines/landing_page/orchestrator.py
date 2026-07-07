@@ -6,6 +6,16 @@ import uuid
 import openai
 from botocore.exceptions import BotoCoreError, ClientError
 
+from app.common.workflow_status import (
+    STATUS_COMPLETED,
+    STATUS_FAILED,
+    STATUS_PROCESSING,
+    STEP_DESIGN_PLAN,
+    STEP_DONE,
+    STEP_EMBEDDING,
+    STEP_LANDING_PAGE_VARIANT,
+    STEP_PERSIST_RESULT,
+)
 from app.pipelines.landing_page.tasks.design_plan import create_design_plan_with_mutation
 from app.pipelines.landing_page.tasks.embedding import create_request_embedding
 from app.pipelines.landing_page.tasks.variants import create_landing_page_variants
@@ -82,6 +92,7 @@ def _build_rag_examples(rag_design_plans: list[dict]) -> list[dict]:
 
 
 def run_landing_page_pipeline(request_id: str) -> None:
+    current_step = STEP_EMBEDDING
     try:
         request_item = get_landing_page_request(request_id)
         if request_item is None:
@@ -89,8 +100,8 @@ def run_landing_page_pipeline(request_id: str) -> None:
 
         update_landing_page_request_state(
             request_id,
-            status="PROCESSING",
-            current_step="EMBEDDING_STARTED",
+            status=STATUS_PROCESSING,
+            current_step=current_step,
             progress=5,
             error_message=None,
             updated_at=_now(),
@@ -132,16 +143,17 @@ def run_landing_page_pipeline(request_id: str) -> None:
 
         update_landing_page_request_state(
             request_id,
-            status="PROCESSING",
-            current_step="EMBEDDING_COMPLETED",
+            status=STATUS_PROCESSING,
+            current_step=current_step,
             progress=20,
             updated_at=_now(),
         )
 
+        current_step = STEP_DESIGN_PLAN
         update_landing_page_request_state(
             request_id,
-            status="PROCESSING",
-            current_step="DESIGN_PLAN_STARTED",
+            status=STATUS_PROCESSING,
+            current_step=current_step,
             progress=30,
             updated_at=_now(),
         )
@@ -162,16 +174,17 @@ def run_landing_page_pipeline(request_id: str) -> None:
 
         update_landing_page_request_state(
             request_id,
-            status="PROCESSING",
-            current_step="DESIGN_PLAN_COMPLETED",
+            status=STATUS_PROCESSING,
+            current_step=current_step,
             progress=55,
             updated_at=_now(),
         )
 
+        current_step = STEP_LANDING_PAGE_VARIANT
         update_landing_page_request_state(
             request_id,
-            status="PROCESSING",
-            current_step="LANDING_PAGE_GENERATION_STARTED",
+            status=STATUS_PROCESSING,
+            current_step=current_step,
             progress=65,
             updated_at=_now(),
         )
@@ -192,6 +205,15 @@ def run_landing_page_pipeline(request_id: str) -> None:
                 **html_storage,
             }
             persisted_variants[variant_name].pop("html", None)
+
+        current_step = STEP_PERSIST_RESULT
+        update_landing_page_request_state(
+            request_id,
+            status=STATUS_PROCESSING,
+            current_step=current_step,
+            progress=85,
+            updated_at=_now(),
+        )
 
         result_id = f"res_{uuid.uuid4().hex}"
         now = _now()
@@ -219,8 +241,8 @@ def run_landing_page_pipeline(request_id: str) -> None:
 
         update_landing_page_request_state(
             request_id,
-            status="COMPLETED",
-            current_step="LANDING_PAGE_GENERATION_COMPLETED",
+            status=STATUS_COMPLETED,
+            current_step=STEP_DONE,
             progress=100,
             updated_at=_now(),
         )
@@ -228,8 +250,8 @@ def run_landing_page_pipeline(request_id: str) -> None:
         try:
             update_landing_page_request_state(
                 request_id,
-                status="FAILED",
-                current_step="FAILED",
+                status=STATUS_FAILED,
+                current_step=current_step,
                 error_message=str(err),
                 updated_at=_now(),
             )

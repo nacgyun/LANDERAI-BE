@@ -1,6 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, Depends
 
 from app.common.auth import require_user_or_admin
+from app.config.settings import settings
 from app.pipelines.landing_page.orchestrator import run_landing_page_pipeline
 from app.schemas.request import (
     LandingPageCreateRequest,
@@ -15,6 +16,7 @@ from app.services.request_service import (
     get_landing_page_variant_selection,
     select_landing_page_variant,
 )
+from app.services.workflow_service import start_landing_page_workflow
 
 
 router = APIRouter(tags=["requests"])
@@ -27,7 +29,10 @@ def create_landing_page_request_endpoint(
     current_user: dict = Depends(require_user_or_admin),
 ):
     response = create_landing_page_request(request, current_user)
-    background_tasks.add_task(run_landing_page_pipeline, response["request_id"])
+    if settings.LANDING_PAGE_STATE_MACHINE_ARN:
+        start_landing_page_workflow(response["request_id"])
+    else:
+        background_tasks.add_task(run_landing_page_pipeline, response["request_id"])
     return response
 
 

@@ -34,8 +34,8 @@ class LandingPageCreateRequest(BaseModel):
 
 class LandingPageRequestCreateResponse(BaseModel):
     request_id: str
-    status: Literal["PENDING"]
-    current_step: Literal["REQUEST_CREATED"]
+    status: Literal["QUEUED"]
+    current_step: Literal["EMBEDDING"]
     progress: int
     project_id: str | None
     created_at: str
@@ -60,7 +60,7 @@ class LandingPageVariantSelectionRequest(BaseModel):
 
 class LandingPageVariantSelectionResponse(BaseModel):
     request_id: str
-    status: Literal["DONE"]
+    status: Literal["COMPLETED"]
     selection_status: Literal["SELECTED", "NOT_SELECTED"]
     chosen_variant: Literal["A", "B"] | None
     selected_design_plan_id: str | None = None

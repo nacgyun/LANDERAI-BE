@@ -8,6 +8,11 @@ import openai
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import HTTPException, status
 
+from app.common.workflow_status import (
+    STATUS_COMPLETED,
+    STATUS_QUEUED,
+    STEP_EMBEDDING,
+)
 from app.common.mutation_paths import set_mutation_path
 from app.repositories.request_repository import (
     get_landing_page_request,
@@ -149,8 +154,8 @@ def create_landing_page_request(
         "goal": request.goal,
         "additional_context": request.additional_context,
         "language": request.language,
-        "status": "PENDING",
-        "current_step": "REQUEST_CREATED",
+        "status": STATUS_QUEUED,
+        "current_step": STEP_EMBEDDING,
         "progress": 0,
         "project_id": None,
         "error_message": None,
@@ -196,7 +201,7 @@ def get_landing_page_variant_selection(
     if request_item.get("selection_status") != "SELECTED" or not chosen_variant:
         return {
             "request_id": request_id,
-            "status": "DONE",
+            "status": STATUS_COMPLETED,
             "selection_status": "NOT_SELECTED",
             "chosen_variant": None,
             "selected_design_plan_id": None,
@@ -205,7 +210,7 @@ def get_landing_page_variant_selection(
 
     return {
         "request_id": request_id,
-        "status": "DONE",
+        "status": STATUS_COMPLETED,
         "selection_status": "SELECTED",
         "chosen_variant": chosen_variant,
         "selected_design_plan_id": request_item.get("selected_design_plan_id"),
@@ -222,7 +227,7 @@ def select_landing_page_variant(
         request_item = _get_accessible_landing_page_request(request_id, current_user)
 
         request_status = request_item.get("status")
-        if request_status != "COMPLETED":
+        if request_status != STATUS_COMPLETED:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={
@@ -342,7 +347,7 @@ def select_landing_page_variant(
 
         return {
             "request_id": request_id,
-            "status": "DONE",
+            "status": STATUS_COMPLETED,
             "selection_status": "SELECTED",
             "chosen_variant": request.selected_variant,
             "selected_design_plan_id": selected_design_plan_id,

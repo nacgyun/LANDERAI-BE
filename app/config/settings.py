@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     AWS_SECRET_ACCESS_KEY: str | None = None
     AWS_SESSION_TOKEN: str | None = None
     AWS_DEFAULT_REGION: str | None = None
+    CORE_TABLE_NAME: str = "coreTable"
+    LANDING_REQUEST_TABLE_NAME: str = "LandingRequest"
+    LANDING_RESULT_TABLE_NAME: str = "LandingResult"
+    RAG_DESIGN_PLAN_TABLE_NAME: str = "RAG_DESIGNPLAN"
+    LANDING_PAGE_STATE_MACHINE_ARN: str | None = None
     S3_BUCKET_NAME: str | None = None
     S3_ENDPOINT_URL: str | None = None
     S3_PUBLIC_BASE_URL: str | None = None

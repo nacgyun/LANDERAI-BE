@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 from pydantic import ValidationError
 
 from app.common.cost import calculate_chat_completion_cost
+from app.common.workflow_status import STATUS_QUEUED
 from app.repositories.dynamodb_setup import get_request_table, get_result_table
 from app.schemas.design_plan import DesignPlanCreateRequest
 from app.services.openai_service import generate_design_plan_json
@@ -25,7 +26,7 @@ def create_design_plan(request: DesignPlanCreateRequest) -> dict[str, str]:
             "style": request.style,
             "purpose": request.purpose,
             "extra": request.extra or "",
-            "status": "PENDING",
+            "status": STATUS_QUEUED,
             "created_at": datetime.utcnow().isoformat(),
         })
     except (BotoCoreError, ClientError) as db_err:
