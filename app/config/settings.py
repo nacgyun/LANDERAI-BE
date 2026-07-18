@@ -4,7 +4,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    OPENAI_API_KEY: str
+    OPENAI_API_KEY: str | None = None
+    OPENAI_API_KEY_PARAMETER_NAME: str | None = None
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
     OPENAI_INPUT_TOKEN_PRICE_PER_TOKEN: Decimal = Decimal("0.00000015")
     OPENAI_OUTPUT_TOKEN_PRICE_PER_TOKEN: Decimal = Decimal("0.0000006")
@@ -32,6 +33,7 @@ class Settings(BaseSettings):
     AUTH_MODE: str = "dev"
 
     CLERK_SECRET_KEY: str | None = None
+    CLERK_SECRET_KEY_PARAMETER_NAME: str | None = None
     CLERK_PUBLISHABLE_KEY: str | None = None
     CLERK_AUTHORIZED_PARTY: str = "http://localhost:3000"
 

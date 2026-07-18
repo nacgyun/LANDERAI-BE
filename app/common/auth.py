@@ -6,6 +6,7 @@ from clerk_backend_api import Clerk
 from clerk_backend_api.security.types import AuthenticateRequestOptions
 
 from app.config.settings import settings
+from app.config.secrets import get_clerk_secret_key
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -54,10 +55,11 @@ def get_current_user(
     if credentials is None:
         raise HTTPException(status_code=401, detail="Missing bearer token")
 
-    if not settings.CLERK_SECRET_KEY:
+    clerk_secret_key = get_clerk_secret_key()
+    if not clerk_secret_key:
         raise RuntimeError("CLERK_SECRET_KEY is required when AUTH_MODE=clerk")
 
-    sdk = Clerk(bearer_auth=settings.CLERK_SECRET_KEY)
+    sdk = Clerk(bearer_auth=clerk_secret_key)
 
     state = sdk.authenticate_request(
         request,

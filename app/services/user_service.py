@@ -5,6 +5,7 @@ import httpx
 from fastapi import HTTPException, status
 
 from app.config.settings import settings
+from app.config.secrets import get_clerk_secret_key
 from app.repositories.user_repository import signup_user_profile, soft_delete_user_profile
 from app.schemas.user import UserSignupRequest
 
@@ -19,7 +20,8 @@ def _split_name(name: str) -> tuple[str, str | None]:
 
 #clerk 회원가입 API
 def _create_clerk_user(request: UserSignupRequest) -> dict:
-    if not settings.CLERK_SECRET_KEY:
+    clerk_secret_key = get_clerk_secret_key()
+    if not clerk_secret_key:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="CLERK_SECRET_KEY is required to create Clerk users",
@@ -41,7 +43,7 @@ def _create_clerk_user(request: UserSignupRequest) -> dict:
         response = httpx.post(
             "https://api.clerk.com/v1/users",
             headers={
-                "Authorization": f"Bearer {settings.CLERK_SECRET_KEY}",
+                "Authorization": f"Bearer {clerk_secret_key}",
                 "Content-Type": "application/json",
             },
             json=payload,
@@ -67,13 +69,14 @@ def _create_clerk_user(request: UserSignupRequest) -> dict:
 
 
 def _delete_clerk_user(user_id: str) -> None:
-    if not settings.CLERK_SECRET_KEY:
+    clerk_secret_key = get_clerk_secret_key()
+    if not clerk_secret_key:
         return
 
     try:
         httpx.delete(
             f"https://api.clerk.com/v1/users/{user_id}",
-            headers={"Authorization": f"Bearer {settings.CLERK_SECRET_KEY}"},
+            headers={"Authorization": f"Bearer {clerk_secret_key}"},
             timeout=10.0,
         )
     except httpx.HTTPError:

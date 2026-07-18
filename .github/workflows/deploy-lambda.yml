@@ -1,0 +1,88 @@
+name: Deploy Lambda
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: ap-northeast-2
+  PYTHON_VERSION: "3.12"
+  LAMBDA_ARCH_PLATFORM: manylinux2014_aarch64
+  LAMBDA_FUNCTIONS: >-
+    landerai-dev-api_lambda
+    landerai-dev-embedding_lambda
+    landerai-dev-design_plan_lambda
+    landerai-dev-landing_page_variant_lambda
+    landerai-dev-persist_result_lambda
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build Lambda package
+        run: |
+          set -euo pipefail
+          rm -rf build
+          mkdir -p build/lambda-package
+
+          python -m pip install \
+            -r requirements.txt \
+            --target build/lambda-package \
+            --platform "${LAMBDA_ARCH_PLATFORM}" \
+            --implementation cp \
+            --python-version 3.12 \
+            --abi cp312 \
+            --only-binary=:all: \
+            --upgrade
+
+          cp -R app build/lambda-package/app
+
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+
+          package_dir = Path("build/lambda-package")
+          zip_path = Path("build/landerai-be-lambda.zip")
+
+          with ZipFile(zip_path, "w", ZIP_DEFLATED) as zf:
+              for path in package_dir.rglob("*"):
+                  if path.is_file():
+                      zf.write(path, path.relative_to(package_dir).as_posix())
+
+          print(zip_path.resolve())
+          print(zip_path.stat().st_size)
+          PY
+
+      - name: Deploy Lambda package
+        run: |
+          set -euo pipefail
+          for function_name in ${LAMBDA_FUNCTIONS}; do
+            aws lambda update-function-code \
+              --function-name "${function_name}" \
+              --zip-file fileb://build/landerai-be-lambda.zip \
+              --region "${AWS_REGION}"
+
+            aws lambda wait function-updated \
+              --function-name "${function_name}" \
+              --region "${AWS_REGION}"
+          done

@@ -4,6 +4,7 @@ from openai import OpenAI
 from typing import Any
 
 from app.config.settings import settings
+from app.config.secrets import get_openai_api_key
 from app.prompts.design_plan_prompt import (
     build_design_plan_user_prompt,
     get_design_plan_system_prompt,
@@ -16,13 +17,18 @@ from app.schemas.design_plan import DesignPlanCreateRequest, DesignPlanResponse
 from app.schemas.landing_page import LandingPageGenerationResponse
 
 
-client = OpenAI(api_key=settings.OPENAI_API_KEY)
+def get_openai_client() -> OpenAI:
+    api_key = get_openai_api_key()
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY environment variable is required for OpenAI requests.")
+    return OpenAI(api_key=api_key)
 
 
 def generate_design_plan_json(
     request: DesignPlanCreateRequest,
     rag_examples: list[dict[str, Any]] | None = None,
 ) -> tuple[str, int, int]:
+    client = get_openai_client()
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
@@ -59,6 +65,7 @@ def generate_design_plan_json(
 
 
 def generate_embedding(text: str) -> tuple[list[float], int]:
+    client = get_openai_client()
     response = client.embeddings.create(
         model=settings.OPENAI_EMBEDDING_MODEL,
         input=text,
@@ -77,6 +84,7 @@ def generate_landing_page_variant(
     design_plan: dict[str, Any],
     mutation: dict[str, Any] | None = None,
 ) -> tuple[LandingPageGenerationResponse, int, int]:
+    client = get_openai_client()
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
