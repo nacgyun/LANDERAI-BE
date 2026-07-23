@@ -184,23 +184,55 @@
         });
       }
 
-      function loadScript(src, publishableKey) {
+      function loadScript(src, attributes = {}) {
         return new Promise((resolve, reject) => {
           const script = document.createElement("script");
           script.async = true;
           script.crossOrigin = "anonymous";
-          script.dataset.clerkPublishableKey = publishableKey;
           script.src = src;
+          for (const [key, value] of Object.entries(attributes)) {
+            script.setAttribute(key, value);
+          }
           script.onload = resolve;
-          script.onerror = reject;
+          script.onerror = () => reject(new Error(`Failed to load script: ${src}`));
           document.head.appendChild(script);
         });
       }
 
-      function getClerkJsUrl(publishableKey) {
-        const encodedFrontendApi = publishableKey.replace(/^pk_(test|live)_/, "");
-        const frontendApi = atob(encodedFrontendApi).replace(/\$$/, "");
-        return `https://${frontendApi}/npm/@clerk/clerk-js@latest/dist/clerk.browser.js`;
+      function getClerkFrontendApi(publishableKey) {
+        const encodedFrontendApi = publishableKey.split("_")[2];
+        if (!encodedFrontendApi) {
+          throw new Error("CLERK_PUBLISHABLE_KEY 형식이 올바르지 않습니다.");
+        }
+        return atob(encodedFrontendApi).replace(/\$$/, "");
+      }
+
+      async function loadClerk(config) {
+        const publishableKey = config.clerk_publishable_key;
+        const frontendApi = getClerkFrontendApi(publishableKey);
+
+        await loadScript(`https://${frontendApi}/npm/@clerk/ui@1/dist/ui.browser.js`);
+        await loadScript(
+          `https://${frontendApi}/npm/@clerk/clerk-js@6/dist/clerk.browser.js`,
+          {
+            "data-clerk-publishable-key": publishableKey,
+          },
+        );
+
+        if (!window.Clerk) {
+          throw new Error("Clerk JS를 불러왔지만 window.Clerk 객체가 없습니다.");
+        }
+
+        clerk = window.Clerk;
+        await clerk.load({
+          ui: {
+            ClerkUI: window.__internal_ClerkUICtor,
+          },
+        });
+
+        if (!clerk.client) {
+          throw new Error("Clerk client가 초기화되지 않았습니다. Publishable key와 Clerk authorized party 설정을 확인하세요.");
+        }
       }
 
       async function getSessionToken() {
@@ -255,6 +287,9 @@
       }
 
       async function createSignIn() {
+        if (!clerk || !clerk.client) {
+          throw new Error("Clerk client가 아직 준비되지 않았습니다.");
+        }
         return clerk.client.signIn.create({
           identifier: emailInput.value.trim(),
         });
@@ -334,6 +369,9 @@
       }
 
       function showClerkSignInUi() {
+        if (!clerk) {
+          throw new Error("Clerk가 아직 준비되지 않았습니다.");
+        }
         emailLoginForm.hidden = true;
         emailCodeForm.hidden = true;
         clerkSignInUi.hidden = false;
@@ -368,13 +406,12 @@
         const config = await fetch("/api/v1/auth/config").then((response) => response.json());
         if (!config.clerk_publishable_key) {
           statusEl.className = "warning";
-          statusEl.textContent = ".env에 CLERK_PUBLISHABLE_KEY=pk_test_... 값을 추가해야 합니다.";
+          statusEl.textContent = "Lambda 환경변수 또는 Terraform var.clerk_publishable_key에 CLERK_PUBLISHABLE_KEY=pk_test_... 값을 추가해야 합니다.";
+          signInEl.hidden = true;
           return;
         }
 
-        await loadScript(getClerkJsUrl(config.clerk_publishable_key), config.clerk_publishable_key);
-        clerk = window.Clerk;
-        await clerk.load();
+        await loadClerk(config);
         await updateUi();
       }
 
@@ -382,12 +419,22 @@
       testUsersButton.addEventListener("click", () => callApi("GET", "/api/v1/users").catch(showError));
       deleteUsersButton.addEventListener("click", () => callApi("DELETE", "/api/v1/users").catch(showError));
       emailLoginForm.addEventListener("submit", (event) => signInWithEmailPassword(event).catch(showError));
-      showClerkUiButton.addEventListener("click", showClerkSignInUi);
+      showClerkUiButton.addEventListener("click", () => {
+        try {
+          showClerkSignInUi();
+        } catch (error) {
+          showError(error);
+        }
+      });
       sendEmailCodeButton.addEventListener("click", () => sendEmailCode().catch(showError));
       emailCodeForm.addEventListener("submit", (event) => verifyEmailCode(event).catch(showError));
-      signOutButton.addEventListener("click", async () => {
-        await clerk.signOut();
-        await updateUi();
+      signOutButton.addEventListener("click", () => {
+        Promise.resolve()
+          .then(async () => {
+            await clerk.signOut();
+            await updateUi();
+          })
+          .catch(showError);
       });
 
       boot().catch((error) => {
