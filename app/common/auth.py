@@ -1,5 +1,6 @@
 from collections.abc import Callable
 
+from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from clerk_backend_api import Clerk
@@ -38,7 +39,10 @@ def get_current_user(
 ):
     if settings.AUTH_MODE == "dev":
         if settings.APP_ENV == "production":
-            raise RuntimeError("AUTH_MODE=dev is not allowed in production")
+            raise HTTPException(
+                status_code=500,
+                detail="AUTH_MODE=dev is not allowed in production",
+            )
 
         return {
             "user_id": settings.DEV_USER_ID,
@@ -50,24 +54,63 @@ def get_current_user(
         }
 
     if settings.AUTH_MODE != "clerk":
-        raise RuntimeError(f"Unsupported AUTH_MODE: {settings.AUTH_MODE}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unsupported AUTH_MODE: {settings.AUTH_MODE}",
+        )
 
     if credentials is None:
         raise HTTPException(status_code=401, detail="Missing bearer token")
 
-    clerk_secret_key = get_clerk_secret_key()
+    try:
+        clerk_secret_key = get_clerk_secret_key()
+    except (BotoCoreError, ClientError) as secret_err:
+        print(
+            "[Auth] failed to load Clerk secret "
+            f"parameter={settings.CLERK_SECRET_KEY_PARAMETER_NAME} "
+            f"error_type={type(secret_err).__name__} error={secret_err}"
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "message": "Clerk secret을 불러오지 못했습니다.",
+                "error_type": type(secret_err).__name__,
+                "parameter_name": settings.CLERK_SECRET_KEY_PARAMETER_NAME,
+            },
+        ) from secret_err
+
     if not clerk_secret_key:
-        raise RuntimeError("CLERK_SECRET_KEY is required when AUTH_MODE=clerk")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "CLERK_SECRET_KEY 또는 CLERK_SECRET_KEY_PARAMETER_NAME 설정이 필요합니다.",
+                "auth_mode": settings.AUTH_MODE,
+            },
+        )
 
     sdk = Clerk(bearer_auth=clerk_secret_key)
 
-    state = sdk.authenticate_request(
-        request,
-        AuthenticateRequestOptions(
-            authorized_parties=_get_authorized_parties(),
-            accepts_token=["session_token"],
-        ),
-    )
+    try:
+        state = sdk.authenticate_request(
+            request,
+            AuthenticateRequestOptions(
+                authorized_parties=_get_authorized_parties(),
+                accepts_token=["session_token"],
+            ),
+        )
+    except Exception as clerk_err:
+        print(
+            "[Auth] Clerk request authentication failed "
+            f"error_type={type(clerk_err).__name__} error={clerk_err}"
+        )
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": "Clerk 토큰 검증 중 오류가 발생했습니다.",
+                "error_type": type(clerk_err).__name__,
+                "authorized_parties": _get_authorized_parties(),
+            },
+        ) from clerk_err
 
     if not state.is_signed_in:
         raise HTTPException(status_code=401, detail=state.reason)
