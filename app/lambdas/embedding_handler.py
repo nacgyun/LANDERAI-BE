@@ -1,5 +1,10 @@
 from app.common.workflow_status import STATUS_PROCESSING, STEP_EMBEDDING
-from app.lambdas.common import decimal_to_float_list, mark_failed, now_iso
+from app.lambdas.common import (
+    decimal_to_float_list,
+    log_workflow_event,
+    mark_failed,
+    now_iso,
+)
 from app.pipelines.landing_page.tasks.embedding import create_request_embedding
 from app.repositories.request_repository import (
     get_landing_page_request,
@@ -14,6 +19,12 @@ def lambda_handler(event, context):
     try:
         if not request_id:
             raise ValueError("request_id is required.")
+
+        log_workflow_event(
+            step=STEP_EMBEDDING,
+            request_id=request_id,
+            message="started",
+        )
 
         update_landing_page_request_state(
             request_id,
@@ -57,6 +68,13 @@ def lambda_handler(event, context):
             updated_at=now_iso(),
         )
 
+        log_workflow_event(
+            step=STEP_EMBEDDING,
+            request_id=request_id,
+            message="completed",
+            rag_request_count=len(rag_request_ids),
+        )
+
         return {
             "request_id": request_id,
             "rag_request_ids": rag_request_ids,
@@ -64,4 +82,3 @@ def lambda_handler(event, context):
     except Exception as err:
         mark_failed(request_id, STEP_EMBEDDING, err)
         raise
-

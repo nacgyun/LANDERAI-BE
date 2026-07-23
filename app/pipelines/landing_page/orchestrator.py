@@ -93,6 +93,7 @@ def _build_rag_examples(rag_design_plans: list[dict]) -> list[dict]:
 
 def run_landing_page_pipeline(request_id: str) -> None:
     current_step = STEP_EMBEDDING
+    print(f"[Workflow:LOCAL] request_id={request_id} started")
     try:
         request_item = get_landing_page_request(request_id)
         if request_item is None:
@@ -246,13 +247,23 @@ def run_landing_page_pipeline(request_id: str) -> None:
             progress=100,
             updated_at=_now(),
         )
+        print(f"[Workflow:LOCAL] request_id={request_id} completed")
     except (BotoCoreError, ClientError, openai.OpenAIError, ValueError) as err:
+        error_type = type(err).__name__
+        error_message = str(err)
+        print(
+            "[Workflow:LOCAL] "
+            f"request_id={request_id} failed "
+            f"current_step={current_step} "
+            f"error_type={error_type} error={error_message}"
+        )
         try:
             update_landing_page_request_state(
                 request_id,
                 status=STATUS_FAILED,
                 current_step=current_step,
-                error_message=str(err),
+                error_type=error_type,
+                error_message=error_message,
                 updated_at=_now(),
             )
         except (BotoCoreError, ClientError):

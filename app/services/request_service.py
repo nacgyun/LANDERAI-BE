@@ -180,6 +180,40 @@ def create_landing_page_request(
         "progress": item["progress"],
         "project_id": item["project_id"],
         "created_at": item["created_at"],
+        "workflow_execution_arn": item.get("workflow_execution_arn"),
+        "workflow_start_date": item.get("workflow_start_date"),
+    }
+
+
+def get_landing_page_request_status(
+    request_id: str,
+    current_user: dict,
+) -> dict:
+    try:
+        request_item = _get_accessible_landing_page_request(request_id, current_user)
+    except HTTPException:
+        raise
+    except (BotoCoreError, ClientError) as db_err:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"요청 상태 조회 중 DB 요청에 실패했습니다. 원인: {db_err}",
+        ) from db_err
+
+    return {
+        "request_id": request_item["request_id"],
+        "status": request_item.get("status"),
+        "current_step": request_item.get("current_step"),
+        "progress": _to_json_safe_value(request_item.get("progress")),
+        "project_id": request_item.get("project_id"),
+        "error_type": request_item.get("error_type"),
+        "error_message": request_item.get("error_message"),
+        "workflow_execution_arn": request_item.get("workflow_execution_arn"),
+        "workflow_start_date": request_item.get("workflow_start_date"),
+        "landing_result_id": request_item.get("landing_result_id"),
+        "selection_status": request_item.get("selection_status"),
+        "chosen_variant": request_item.get("chosen_variant"),
+        "created_at": request_item.get("created_at"),
+        "updated_at": request_item.get("updated_at"),
     }
 
 

@@ -2,7 +2,7 @@ import json
 
 from app.common.cost import calculate_chat_completion_cost
 from app.common.workflow_status import STATUS_PROCESSING, STEP_LANDING_PAGE_VARIANT
-from app.lambdas.common import mark_failed, now_iso
+from app.lambdas.common import log_workflow_event, mark_failed, now_iso
 from app.pipelines.landing_page.tasks.variants import apply_mutation_to_design_plan
 from app.repositories.request_repository import (
     get_landing_page_request,
@@ -20,6 +20,13 @@ def lambda_handler(event, context):
             raise ValueError("request_id is required.")
         if variant not in {"A", "B"}:
             raise ValueError("variant must be A or B.")
+
+        log_workflow_event(
+            step=STEP_LANDING_PAGE_VARIANT,
+            request_id=request_id,
+            message="started",
+            variant=variant,
+        )
 
         update_landing_page_request_state(
             request_id,
@@ -63,6 +70,14 @@ def lambda_handler(event, context):
             output_tokens,
         )
 
+        log_workflow_event(
+            step=STEP_LANDING_PAGE_VARIANT,
+            request_id=request_id,
+            message="completed",
+            variant=variant,
+            html_s3_key=storage.get("html_s3_key"),
+        )
+
         return {
             "variant": variant,
             "title": generated.title,
@@ -74,4 +89,3 @@ def lambda_handler(event, context):
     except Exception as err:
         mark_failed(request_id, STEP_LANDING_PAGE_VARIANT, err)
         raise
-

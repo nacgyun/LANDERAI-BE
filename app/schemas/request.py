@@ -32,13 +32,35 @@ class LandingPageCreateRequest(BaseModel):
         return stripped
 
 
+RequestStatus = Literal["QUEUED", "PROCESSING", "COMPLETED", "FAILED"]
+
+
 class LandingPageRequestCreateResponse(BaseModel):
     request_id: str
-    status: Literal["QUEUED"]
-    current_step: Literal["EMBEDDING"]
+    status: RequestStatus
+    current_step: str
     progress: int
     project_id: str | None
     created_at: str
+    workflow_execution_arn: str | None = None
+    workflow_start_date: str | None = None
+
+
+class LandingPageRequestStatusResponse(BaseModel):
+    request_id: str
+    status: RequestStatus
+    current_step: str | None = None
+    progress: int | None = None
+    project_id: str | None = None
+    error_type: str | None = None
+    error_message: str | None = None
+    workflow_execution_arn: str | None = None
+    workflow_start_date: str | None = None
+    landing_result_id: str | None = None
+    selection_status: str | None = None
+    chosen_variant: Literal["A", "B"] | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
 
 
 class LandingPageVariantPreview(BaseModel):
