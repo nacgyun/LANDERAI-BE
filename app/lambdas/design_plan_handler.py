@@ -1,5 +1,10 @@
 from app.common.workflow_status import STATUS_PROCESSING, STEP_DESIGN_PLAN
-from app.lambdas.common import build_rag_examples, mark_failed, now_iso
+from app.lambdas.common import (
+    build_rag_examples,
+    log_workflow_event,
+    mark_failed,
+    now_iso,
+)
 from app.pipelines.landing_page.tasks.design_plan import create_design_plan_with_mutation
 from app.repositories.rag_design_plan_repository import get_rag_design_plans_by_request_ids
 from app.repositories.request_repository import (
@@ -14,6 +19,13 @@ def lambda_handler(event, context):
     try:
         if not request_id:
             raise ValueError("request_id is required.")
+
+        log_workflow_event(
+            step=STEP_DESIGN_PLAN,
+            request_id=request_id,
+            message="started",
+            rag_request_count=len(event.get("rag_request_ids", [])),
+        )
 
         update_landing_page_request_state(
             request_id,
@@ -54,6 +66,12 @@ def lambda_handler(event, context):
             updated_at=now_iso(),
         )
 
+        log_workflow_event(
+            step=STEP_DESIGN_PLAN,
+            request_id=request_id,
+            message="completed",
+        )
+
         return {
             "request_id": request_id,
             "variants": ["A", "B"],
@@ -61,4 +79,3 @@ def lambda_handler(event, context):
     except Exception as err:
         mark_failed(request_id, STEP_DESIGN_PLAN, err)
         raise
-

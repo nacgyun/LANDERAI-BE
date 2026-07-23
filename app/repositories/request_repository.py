@@ -44,6 +44,7 @@ def update_landing_page_request_state(
     current_step: str | None = None,
     progress: int | None = None,
     error_message: str | None = None,
+    error_type: str | None = None,
     updated_at: str,
 ) -> None:
     update_parts = ["updated_at = :updated_at"]
@@ -65,6 +66,9 @@ def update_landing_page_request_state(
     if error_message is not None:
         update_parts.append("error_message = :error_message")
         expression_values[":error_message"] = error_message
+    if error_type is not None:
+        update_parts.append("error_type = :error_type")
+        expression_values[":error_type"] = error_type
 
     update_kwargs: dict[str, Any] = {
         "Key": {
@@ -78,6 +82,73 @@ def update_landing_page_request_state(
         update_kwargs["ExpressionAttributeNames"] = expression_names
 
     get_request_table().update_item(**update_kwargs)
+
+
+def save_landing_page_workflow_execution(
+    request_id: str,
+    *,
+    execution_arn: str,
+    start_date: str,
+    status: str,
+    progress: int,
+    updated_at: str,
+) -> None:
+    get_request_table().update_item(
+        Key={
+            "request_id": request_id,
+        },
+        UpdateExpression=(
+            "SET workflow_execution_arn = :workflow_execution_arn, "
+            "workflow_start_date = :workflow_start_date, "
+            "#status = :status, "
+            "progress = :progress, "
+            "updated_at = :updated_at"
+        ),
+        ConditionExpression="attribute_exists(request_id)",
+        ExpressionAttributeNames={
+            "#status": "status",
+        },
+        ExpressionAttributeValues={
+            ":workflow_execution_arn": execution_arn,
+            ":workflow_start_date": start_date,
+            ":status": status,
+            ":progress": progress,
+            ":updated_at": updated_at,
+        },
+    )
+
+
+def mark_landing_page_request_failed(
+    request_id: str,
+    *,
+    current_step: str,
+    error_type: str,
+    error_message: str,
+    updated_at: str,
+) -> None:
+    get_request_table().update_item(
+        Key={
+            "request_id": request_id,
+        },
+        UpdateExpression=(
+            "SET #status = :status, "
+            "current_step = :current_step, "
+            "error_type = :error_type, "
+            "error_message = :error_message, "
+            "updated_at = :updated_at"
+        ),
+        ConditionExpression="attribute_exists(request_id)",
+        ExpressionAttributeNames={
+            "#status": "status",
+        },
+        ExpressionAttributeValues={
+            ":status": "FAILED",
+            ":current_step": current_step,
+            ":error_type": error_type,
+            ":error_message": error_message,
+            ":updated_at": updated_at,
+        },
+    )
 
 
 def save_landing_page_request_embedding(

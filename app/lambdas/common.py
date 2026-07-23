@@ -54,18 +54,44 @@ def build_rag_examples(rag_design_plans: list[dict]) -> list[dict]:
     return examples
 
 
+def log_workflow_event(
+    *,
+    step: str,
+    request_id: str | None,
+    message: str,
+    **fields,
+) -> None:
+    field_text = " ".join(
+        f"{key}={value}"
+        for key, value in fields.items()
+        if value is not None
+    )
+    suffix = f" {field_text}" if field_text else ""
+    print(f"[Workflow:{step}] request_id={request_id} {message}{suffix}")
+
+
 def mark_failed(request_id: str | None, current_step: str, err: Exception) -> None:
     if not request_id:
         return
+
+    error_type = type(err).__name__
+    error_message = str(err)
+    log_workflow_event(
+        step=current_step,
+        request_id=request_id,
+        message="failed",
+        error_type=error_type,
+        error=error_message,
+    )
 
     try:
         update_landing_page_request_state(
             request_id,
             status=STATUS_FAILED,
             current_step=current_step,
-            error_message=str(err),
+            error_type=error_type,
+            error_message=error_message,
             updated_at=now_iso(),
         )
     except Exception:
         pass
-

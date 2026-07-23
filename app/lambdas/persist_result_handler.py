@@ -7,7 +7,7 @@ from app.common.workflow_status import (
     STEP_DONE,
     STEP_PERSIST_RESULT,
 )
-from app.lambdas.common import mark_failed, now_iso
+from app.lambdas.common import log_workflow_event, mark_failed, now_iso
 from app.repositories.request_repository import (
     save_landing_page_result,
     save_landing_page_result_reference,
@@ -20,6 +20,13 @@ def lambda_handler(event, context):
     try:
         if not request_id:
             raise ValueError("request_id is required.")
+
+        log_workflow_event(
+            step=STEP_PERSIST_RESULT,
+            request_id=request_id,
+            message="started",
+            generated_variant_count=len(event.get("generated_variants", [])),
+        )
 
         update_landing_page_request_state(
             request_id,
@@ -80,6 +87,13 @@ def lambda_handler(event, context):
             current_step=STEP_DONE,
             progress=100,
             updated_at=now,
+        )
+
+        log_workflow_event(
+            step=STEP_PERSIST_RESULT,
+            request_id=request_id,
+            message="completed",
+            result_id=result_id,
         )
 
         return {
