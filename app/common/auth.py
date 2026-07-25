@@ -3,6 +3,7 @@ from collections.abc import Callable
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+import httpx
 from clerk_backend_api import Clerk
 from clerk_backend_api.security.types import AuthenticateRequestOptions
 
@@ -25,11 +26,14 @@ def _extract_role(claims: dict) -> str | None:
     if role:
         return str(role).upper()
 
+    return _metadata_role(claims)
+
+
+def _metadata_role(payload: dict) -> str | None:
     for metadata_key in ("public_metadata", "publicMetadata", "metadata"):
-        metadata = claims.get(metadata_key)
+        metadata = payload.get(metadata_key)
         if isinstance(metadata, dict) and metadata.get("role"):
             return str(metadata["role"]).upper()
-
     return None
 
 
@@ -44,6 +48,58 @@ def _claims_to_dict(claims) -> dict:
         return dict(claims.__dict__)
     raise TypeError(f"Unsupported Clerk claims payload type: {type(claims).__name__}")
 
+
+def _fetch_clerk_user_role(user_id: str, clerk_secret_key: str) -> str | None:
+    try:
+        response = httpx.get(
+            f"https://api.clerk.com/v1/users/{user_id}",
+            headers={
+                "Authorization": f"Bearer {clerk_secret_key}",
+                "Content-Type": "application/json",
+            },
+            timeout=10.0,
+        )
+        response.raise_for_status()
+    except httpx.HTTPStatusError as clerk_err:
+        status_code = clerk_err.response.status_code
+        print(
+            "[Auth] failed to fetch Clerk user metadata "
+            f"user_id={user_id} status_code={status_code} "
+            f"error={clerk_err.response.text}"
+        )
+        if status_code in {401, 403, 404}:
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "message": "Clerk 사용자 metadata 조회가 거부되었거나 사용자를 찾지 못했습니다.",
+                    "error_type": type(clerk_err).__name__,
+                    "clerk_status_code": status_code,
+                },
+            ) from clerk_err
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": "Clerk 사용자 metadata 조회 중 upstream 오류가 발생했습니다.",
+                "error_type": type(clerk_err).__name__,
+                "clerk_status_code": status_code,
+            },
+        ) from clerk_err
+    except httpx.HTTPError as clerk_err:
+        print(
+            "[Auth] failed to fetch Clerk user metadata "
+            f"user_id={user_id} error_type={type(clerk_err).__name__} "
+            f"error={clerk_err}"
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "message": "Clerk 사용자 metadata 조회 요청에 실패했습니다.",
+                "error_type": type(clerk_err).__name__,
+            },
+        ) from clerk_err
+
+    return _metadata_role(response.json())
+
 #사용자가 누구인지 확인 -> user_id, mode, role 반환
 def get_current_user(
     request: Request,
@@ -56,13 +112,17 @@ def get_current_user(
                 detail="AUTH_MODE=dev is not allowed in production",
             )
 
+        claims = {
+            "sub": settings.DEV_USER_ID,
+            "mode": "dev",
+            "role": settings.DEV_USER_ROLE.upper(),
+        }
         return {
             "user_id": settings.DEV_USER_ID,
-            "claims": {
-                "sub": settings.DEV_USER_ID,
-                "mode": "dev",
-                "role": settings.DEV_USER_ROLE.upper(),
-            },
+            "claims": claims,
+            "token_claims": dict(claims),
+            "role": claims["role"],
+            "role_source": "dev",
         }
 
     if settings.AUTH_MODE != "clerk":
@@ -143,6 +203,7 @@ def get_current_user(
 
     try:
         claims = _claims_to_dict(state.payload)
+        token_claims = dict(claims)
         user_id = claims["sub"]
     except Exception as claims_err:
         print(
@@ -157,9 +218,24 @@ def get_current_user(
             },
         ) from claims_err
 
+    role = _extract_role(claims)
+    role_source = "token" if role else None
+    if role is None:
+        role = _fetch_clerk_user_role(user_id, clerk_secret_key)
+        if role:
+            role_source = "clerk_user_metadata"
+            claims["role"] = role
+            print(
+                "[Auth] resolved role from Clerk user metadata "
+                f"user_id={user_id} role={role}"
+            )
+
     return {
         "user_id": user_id,
         "claims": claims,
+        "token_claims": token_claims,
+        "role": role,
+        "role_source": role_source,
     }
 
 #사용자  role 확인해서 권한 체크
@@ -167,7 +243,7 @@ def require_roles(*allowed_roles: str) -> Callable:
     allowed_role_set = {role.upper() for role in allowed_roles}
 
     def dependency(current_user: dict = Depends(get_current_user)) -> dict:
-        role = _extract_role(current_user["claims"])
+        role = current_user.get("role") or _extract_role(current_user["claims"])
         if role not in allowed_role_set:
             raise HTTPException(
                 status_code=403,
