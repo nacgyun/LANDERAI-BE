@@ -4,6 +4,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 import httpx
 from fastapi import HTTPException, status
 
+from app.common.auth import _extract_role
 from app.config.settings import settings
 from app.config.secrets import get_clerk_secret_key
 from app.repositories.user_repository import signup_user_profile, soft_delete_user_profile
@@ -127,7 +128,24 @@ def signup(request: UserSignupRequest) -> dict:
 
 
 def get_current_user_info(current_user: dict) -> dict:
-    return {"current_user": current_user}
+    claims = current_user.get("claims", {})
+    role = current_user.get("role") or _extract_role(claims)
+    return {
+        "current_user": {
+            "user_id": current_user["user_id"],
+            "role": role,
+            "email": claims.get("email")
+            or claims.get("email_address")
+            or claims.get("primary_email_address"),
+            "claims": {
+                "sub": claims.get("sub"),
+                "iss": claims.get("iss"),
+                "azp": claims.get("azp"),
+                "sid": claims.get("sid"),
+                "role": role,
+            },
+        },
+    }
 
 
 def delete_user(current_user: dict) -> dict:
