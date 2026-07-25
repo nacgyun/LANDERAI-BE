@@ -61,19 +61,42 @@ def _fetch_clerk_user_role(user_id: str, clerk_secret_key: str) -> str | None:
         )
         response.raise_for_status()
     except httpx.HTTPStatusError as clerk_err:
+        status_code = clerk_err.response.status_code
         print(
             "[Auth] failed to fetch Clerk user metadata "
-            f"user_id={user_id} status_code={clerk_err.response.status_code} "
+            f"user_id={user_id} status_code={status_code} "
             f"error={clerk_err.response.text}"
         )
-        return None
+        if status_code in {401, 403, 404}:
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "message": "Clerk 사용자 metadata 조회가 거부되었거나 사용자를 찾지 못했습니다.",
+                    "error_type": type(clerk_err).__name__,
+                    "clerk_status_code": status_code,
+                },
+            ) from clerk_err
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": "Clerk 사용자 metadata 조회 중 upstream 오류가 발생했습니다.",
+                "error_type": type(clerk_err).__name__,
+                "clerk_status_code": status_code,
+            },
+        ) from clerk_err
     except httpx.HTTPError as clerk_err:
         print(
             "[Auth] failed to fetch Clerk user metadata "
             f"user_id={user_id} error_type={type(clerk_err).__name__} "
             f"error={clerk_err}"
         )
-        return None
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "message": "Clerk 사용자 metadata 조회 요청에 실패했습니다.",
+                "error_type": type(clerk_err).__name__,
+            },
+        ) from clerk_err
 
     return _metadata_role(response.json())
 
@@ -89,13 +112,17 @@ def get_current_user(
                 detail="AUTH_MODE=dev is not allowed in production",
             )
 
+        claims = {
+            "sub": settings.DEV_USER_ID,
+            "mode": "dev",
+            "role": settings.DEV_USER_ROLE.upper(),
+        }
         return {
             "user_id": settings.DEV_USER_ID,
-            "claims": {
-                "sub": settings.DEV_USER_ID,
-                "mode": "dev",
-                "role": settings.DEV_USER_ROLE.upper(),
-            },
+            "claims": claims,
+            "token_claims": dict(claims),
+            "role": claims["role"],
+            "role_source": "dev",
         }
 
     if settings.AUTH_MODE != "clerk":
