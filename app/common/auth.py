@@ -3,6 +3,7 @@ from collections.abc import Callable
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+import httpx
 from clerk_backend_api import Clerk
 from clerk_backend_api.security.types import AuthenticateRequestOptions
 
@@ -25,11 +26,14 @@ def _extract_role(claims: dict) -> str | None:
     if role:
         return str(role).upper()
 
+    return _metadata_role(claims)
+
+
+def _metadata_role(payload: dict) -> str | None:
     for metadata_key in ("public_metadata", "publicMetadata", "metadata"):
-        metadata = claims.get(metadata_key)
+        metadata = payload.get(metadata_key)
         if isinstance(metadata, dict) and metadata.get("role"):
             return str(metadata["role"]).upper()
-
     return None
 
 
@@ -43,6 +47,35 @@ def _claims_to_dict(claims) -> dict:
     if hasattr(claims, "__dict__"):
         return dict(claims.__dict__)
     raise TypeError(f"Unsupported Clerk claims payload type: {type(claims).__name__}")
+
+
+def _fetch_clerk_user_role(user_id: str, clerk_secret_key: str) -> str | None:
+    try:
+        response = httpx.get(
+            f"https://api.clerk.com/v1/users/{user_id}",
+            headers={
+                "Authorization": f"Bearer {clerk_secret_key}",
+                "Content-Type": "application/json",
+            },
+            timeout=10.0,
+        )
+        response.raise_for_status()
+    except httpx.HTTPStatusError as clerk_err:
+        print(
+            "[Auth] failed to fetch Clerk user metadata "
+            f"user_id={user_id} status_code={clerk_err.response.status_code} "
+            f"error={clerk_err.response.text}"
+        )
+        return None
+    except httpx.HTTPError as clerk_err:
+        print(
+            "[Auth] failed to fetch Clerk user metadata "
+            f"user_id={user_id} error_type={type(clerk_err).__name__} "
+            f"error={clerk_err}"
+        )
+        return None
+
+    return _metadata_role(response.json())
 
 #사용자가 누구인지 확인 -> user_id, mode, role 반환
 def get_current_user(
@@ -156,6 +189,16 @@ def get_current_user(
                 "error_type": type(claims_err).__name__,
             },
         ) from claims_err
+
+    role = _extract_role(claims)
+    if role is None:
+        role = _fetch_clerk_user_role(user_id, clerk_secret_key)
+        if role:
+            claims["role"] = role
+            print(
+                "[Auth] resolved role from Clerk user metadata "
+                f"user_id={user_id} role={role}"
+            )
 
     return {
         "user_id": user_id,
