@@ -176,6 +176,7 @@ def get_current_user(
 
     try:
         claims = _claims_to_dict(state.payload)
+        token_claims = dict(claims)
         user_id = claims["sub"]
     except Exception as claims_err:
         print(
@@ -191,9 +192,11 @@ def get_current_user(
         ) from claims_err
 
     role = _extract_role(claims)
+    role_source = "token" if role else None
     if role is None:
         role = _fetch_clerk_user_role(user_id, clerk_secret_key)
         if role:
+            role_source = "clerk_user_metadata"
             claims["role"] = role
             print(
                 "[Auth] resolved role from Clerk user metadata "
@@ -203,6 +206,9 @@ def get_current_user(
     return {
         "user_id": user_id,
         "claims": claims,
+        "token_claims": token_claims,
+        "role": role,
+        "role_source": role_source,
     }
 
 #사용자  role 확인해서 권한 체크
@@ -210,7 +216,7 @@ def require_roles(*allowed_roles: str) -> Callable:
     allowed_role_set = {role.upper() for role in allowed_roles}
 
     def dependency(current_user: dict = Depends(get_current_user)) -> dict:
-        role = _extract_role(current_user["claims"])
+        role = current_user.get("role") or _extract_role(current_user["claims"])
         if role not in allowed_role_set:
             raise HTTPException(
                 status_code=403,
