@@ -32,6 +32,18 @@ def _extract_role(claims: dict) -> str | None:
 
     return None
 
+
+def _claims_to_dict(claims) -> dict:
+    if isinstance(claims, dict):
+        return claims
+    if hasattr(claims, "model_dump"):
+        return claims.model_dump()
+    if hasattr(claims, "dict"):
+        return claims.dict()
+    if hasattr(claims, "__dict__"):
+        return dict(claims.__dict__)
+    raise TypeError(f"Unsupported Clerk claims payload type: {type(claims).__name__}")
+
 #사용자가 누구인지 확인 -> user_id, mode, role 반환
 def get_current_user(
     request: Request,
@@ -78,6 +90,20 @@ def get_current_user(
                 "parameter_name": settings.CLERK_SECRET_KEY_PARAMETER_NAME,
             },
         ) from secret_err
+    except Exception as secret_err:
+        print(
+            "[Auth] unexpected error while loading Clerk secret "
+            f"parameter={settings.CLERK_SECRET_KEY_PARAMETER_NAME} "
+            f"error_type={type(secret_err).__name__} error={secret_err}"
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Clerk secret 설정 처리 중 예상치 못한 오류가 발생했습니다.",
+                "error_type": type(secret_err).__name__,
+                "parameter_name": settings.CLERK_SECRET_KEY_PARAMETER_NAME,
+            },
+        ) from secret_err
 
     if not clerk_secret_key:
         raise HTTPException(
@@ -113,11 +139,27 @@ def get_current_user(
         ) from clerk_err
 
     if not state.is_signed_in:
-        raise HTTPException(status_code=401, detail=state.reason)
+        raise HTTPException(status_code=401, detail=str(state.reason))
+
+    try:
+        claims = _claims_to_dict(state.payload)
+        user_id = claims["sub"]
+    except Exception as claims_err:
+        print(
+            "[Auth] failed to parse Clerk claims "
+            f"error_type={type(claims_err).__name__} error={claims_err}"
+        )
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": "Clerk 인증 payload를 해석하지 못했습니다.",
+                "error_type": type(claims_err).__name__,
+            },
+        ) from claims_err
 
     return {
-        "user_id": state.payload["sub"],
-        "claims": state.payload,
+        "user_id": user_id,
+        "claims": claims,
     }
 
 #사용자  role 확인해서 권한 체크

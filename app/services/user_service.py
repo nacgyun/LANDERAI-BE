@@ -127,7 +127,25 @@ def signup(request: UserSignupRequest) -> dict:
 
 
 def get_current_user_info(current_user: dict) -> dict:
-    return {"current_user": current_user}
+    claims = current_user.get("claims", {})
+    return {
+        "current_user": {
+            "user_id": current_user["user_id"],
+            "role": current_user.get("role"),
+            "email": claims.get("email")
+            or claims.get("email_address")
+            or claims.get("primary_email_address"),
+            "claims": {
+                "sub": claims.get("sub"),
+                "iss": claims.get("iss"),
+                "azp": claims.get("azp"),
+                "sid": claims.get("sid"),
+                "role": claims.get("role")
+                or claims.get("org_role")
+                or (claims.get("public_metadata") or {}).get("role"),
+            },
+        },
+    }
 
 
 def delete_user(current_user: dict) -> dict:
