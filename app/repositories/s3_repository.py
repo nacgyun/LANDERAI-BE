@@ -27,14 +27,6 @@ def _get_s3_client():
                 "aws_session_token": None,
             }
         )
-    elif settings.AWS_ACCESS_KEY_ID and settings.AWS_SECRET_ACCESS_KEY:
-        client_kwargs.update(
-            {
-                "aws_access_key_id": settings.AWS_ACCESS_KEY_ID,
-                "aws_secret_access_key": settings.AWS_SECRET_ACCESS_KEY,
-                "aws_session_token": settings.AWS_SESSION_TOKEN,
-            }
-        )
 
     return boto3.client("s3", **client_kwargs)
 
