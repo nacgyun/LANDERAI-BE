@@ -3,7 +3,6 @@ from fastapi import FastAPI
 
 from app.repositories.dynamodb_setup import init_tables
 from app.routers.auth import router as auth_router
-from app.routers.design_plan import router as design_plan_router
 from app.routers.request import router as request_router
 from app.routers.user import router as user_router
 
@@ -14,7 +13,6 @@ app = FastAPI(
 )
 
 app.include_router(auth_router)
-app.include_router(design_plan_router)
 app.include_router(request_router)
 app.include_router(user_router)
 

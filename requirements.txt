@@ -8,3 +8,4 @@ httpx>=0.28.1,<1.0.0
 pydantic-settings==2.2.1
 clerk-backend-api==5.0.6
 email-validator
+pytest>=8.0.0,<9.0.0

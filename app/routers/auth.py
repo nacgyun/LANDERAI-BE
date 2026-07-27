@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 
 from app.common.auth import get_current_user
@@ -8,6 +8,15 @@ from app.config.settings import settings
 
 
 router = APIRouter(tags=["auth"])
+
+
+def _is_dev_tool_enabled() -> bool:
+    return settings.APP_ENV in {"local", "dev"}
+
+
+def require_dev_tool_enabled() -> None:
+    if not _is_dev_tool_enabled():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
 
 @router.get("/api/v1/auth/config")
@@ -23,8 +32,11 @@ def get_auth_config():
     }
 
 
-@router.get("/api/v1/auth/me")
-def get_auth_me(current_user: dict = Depends(get_current_user)):
+@router.get("/api/v1/auth/me", include_in_schema=_is_dev_tool_enabled())
+def get_auth_me(
+    _: None = Depends(require_dev_tool_enabled),
+    current_user: dict = Depends(get_current_user),
+):
     token_claims = current_user.get("token_claims", {})
     claims = current_user.get("claims", {})
     role_keys = [

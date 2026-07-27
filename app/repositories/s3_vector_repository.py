@@ -32,14 +32,6 @@ def _get_s3_vectors_client():
                 "aws_session_token": None,
             }
         )
-    elif settings.AWS_ACCESS_KEY_ID and settings.AWS_SECRET_ACCESS_KEY:
-        client_kwargs.update(
-            {
-                "aws_access_key_id": settings.AWS_ACCESS_KEY_ID,
-                "aws_secret_access_key": settings.AWS_SECRET_ACCESS_KEY,
-                "aws_session_token": settings.AWS_SESSION_TOKEN,
-            }
-        )
 
     try:
         return boto3.client("s3vectors", **client_kwargs)
