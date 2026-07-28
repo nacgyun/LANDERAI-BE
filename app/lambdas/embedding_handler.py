@@ -73,6 +73,7 @@ def lambda_handler(event, context):
             request_id=request_id,
             message="completed",
             rag_request_count=len(rag_request_ids),
+            rag_request_ids=",".join(rag_request_ids),
         )
 
         return {
