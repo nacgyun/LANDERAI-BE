@@ -16,6 +16,7 @@ from app.repositories.request_repository import (
 
 def lambda_handler(event, context):
     request_id = event.get("request_id")
+    rag_request_ids = event.get("rag_request_ids", [])
     try:
         if not request_id:
             raise ValueError("request_id is required.")
@@ -24,7 +25,8 @@ def lambda_handler(event, context):
             step=STEP_DESIGN_PLAN,
             request_id=request_id,
             message="started",
-            rag_request_count=len(event.get("rag_request_ids", [])),
+            rag_request_count=len(rag_request_ids),
+            rag_request_ids=",".join(rag_request_ids),
         )
 
         update_landing_page_request_state(
@@ -39,9 +41,7 @@ def lambda_handler(event, context):
         if request_item is None:
             raise ValueError(f"LandingPageRequest not found: {request_id}")
 
-        rag_design_plans = get_rag_design_plans_by_request_ids(
-            event.get("rag_request_ids", []),
-        )
+        rag_design_plans = get_rag_design_plans_by_request_ids(rag_request_ids)
         rag_examples = build_rag_examples(rag_design_plans)
 
         design_plan_result = create_design_plan_with_mutation(
