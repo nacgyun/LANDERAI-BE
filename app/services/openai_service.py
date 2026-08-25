@@ -98,7 +98,6 @@ def generate_landing_page_variant(
                 ),
             },
         ],
-        temperature=0.7,
         response_format={"type": "json_object"},
     )
     generated_landing_page = response.choices[0].message.content
