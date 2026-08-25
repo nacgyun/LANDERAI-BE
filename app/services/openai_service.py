@@ -86,7 +86,7 @@ def generate_landing_page_variant(
 ) -> tuple[LandingPageGenerationResponse, int, int]:
     client = get_openai_client()
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-5.6-luna",
         messages=[
             {"role": "system", "content": get_landing_page_system_prompt()},
             {
