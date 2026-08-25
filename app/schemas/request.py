@@ -63,6 +63,28 @@ class LandingPageRequestStatusResponse(BaseModel):
     updated_at: str | None = None
 
 
+class LandingPageRequestListItem(BaseModel):
+    request_id: str
+    project_id: str | None = None
+    industry: AllowedIndustry
+    sub_industry: str
+    target: str
+    style: str
+    goal: str
+    status: RequestStatus
+    current_step: str | None = None
+    progress: int | None = None
+    selection_status: str | None = None
+    chosen_variant: Literal["A", "B"] | None = None
+    created_at: str
+    updated_at: str | None = None
+
+
+class LandingPageRequestListResponse(BaseModel):
+    items: list[LandingPageRequestListItem]
+    total: int
+
+
 class LandingPageVariantPreview(BaseModel):
     preview_url: str
     html_s3_bucket: str

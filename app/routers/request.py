@@ -8,6 +8,7 @@ from app.common.workflow_status import STATUS_PROCESSING, STEP_EMBEDDING
 from app.config.settings import settings
 from app.pipelines.landing_page.orchestrator import run_landing_page_pipeline
 from app.repositories.request_repository import (
+    list_landing_page_requests_by_user,
     mark_landing_page_request_failed,
     save_landing_page_workflow_execution,
 )
@@ -15,6 +16,7 @@ from app.schemas.request import (
     LandingPageCreateRequest,
     LandingPagePreviewUrlsResponse,
     LandingPageRequestCreateResponse,
+    LandingPageRequestListResponse,
     LandingPageRequestStatusResponse,
     LandingPageVariantSelectionRequest,
     LandingPageVariantSelectionResponse,
@@ -93,6 +95,14 @@ def create_landing_page_request_endpoint(
     else:
         background_tasks.add_task(run_landing_page_pipeline, response["request_id"])
     return response
+
+
+@router.get("/api/v1/requests", response_model=LandingPageRequestListResponse)
+def list_landing_page_requests_endpoint(
+    current_user: dict = Depends(require_user_or_admin),
+):
+    items = list_landing_page_requests_by_user(current_user["user_id"])
+    return {"items": items, "total": len(items)}
 
 
 @router.get(
