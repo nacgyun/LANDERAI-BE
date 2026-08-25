@@ -37,6 +37,31 @@ def get_landing_page_request(request_id: str) -> dict[str, Any] | None:
     return response.get("Item")
 
 
+def list_landing_page_requests_by_user(user_id: str) -> list[dict[str, Any]]:
+    table = get_request_table()
+    scan_kwargs: dict[str, Any] = {
+        "FilterExpression": "user_id = :user_id",
+        "ExpressionAttributeValues": {":user_id": user_id},
+        "ProjectionExpression": (
+            "request_id, project_id, industry, sub_industry, target, style, goal, "
+            "#status, current_step, progress, selection_status, chosen_variant, "
+            "created_at, updated_at"
+        ),
+        "ExpressionAttributeNames": {"#status": "status"},
+    }
+    items: list[dict[str, Any]] = []
+
+    while True:
+        response = table.scan(**scan_kwargs)
+        items.extend(response.get("Items", []))
+        last_key = response.get("LastEvaluatedKey")
+        if not last_key:
+            break
+        scan_kwargs["ExclusiveStartKey"] = last_key
+
+    return sorted(items, key=lambda item: item.get("created_at", ""), reverse=True)
+
+
 def update_landing_page_request_state(
     request_id: str,
     *,
