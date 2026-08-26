@@ -43,11 +43,13 @@ def list_landing_page_requests_by_user(user_id: str) -> list[dict[str, Any]]:
         "FilterExpression": "user_id = :user_id",
         "ExpressionAttributeValues": {":user_id": user_id},
         "ProjectionExpression": (
-            "request_id, project_id, industry, sub_industry, target, style, goal, "
+            "request_id, project_id, industry, sub_industry, target, #style, goal, "
             "#status, current_step, progress, selection_status, chosen_variant, "
             "created_at, updated_at"
         ),
-        "ExpressionAttributeNames": {"#status": "status"},
+        "ExpressionAttributeNames": {
+            "#status": "status",
+            "#style": "style"},
     }
     items: list[dict[str, Any]] = []
 
