@@ -7,7 +7,11 @@ from fastapi import HTTPException, status
 from app.common.auth import _extract_role
 from app.config.settings import settings
 from app.config.secrets import get_clerk_secret_key
-from app.repositories.user_repository import signup_user_profile, soft_delete_user_profile
+from app.repositories.user_repository import (
+    get_user_profile,
+    signup_user_profile,
+    soft_delete_user_profile,
+)
 from app.schemas.user import UserSignupRequest
 
 
@@ -84,6 +88,53 @@ def _delete_clerk_user(user_id: str) -> None:
         pass
 
 
+def _get_clerk_user_profile(user_id: str) -> dict:
+    clerk_secret_key = get_clerk_secret_key()
+    if not clerk_secret_key:
+        return {}
+
+    try:
+        response = httpx.get(
+            f"https://api.clerk.com/v1/users/{user_id}",
+            headers={"Authorization": f"Bearer {clerk_secret_key}"},
+            timeout=10.0,
+        )
+        response.raise_for_status()
+    except httpx.HTTPError:
+        return {}
+
+    clerk_user = response.json()
+    first_name = clerk_user.get("first_name") or ""
+    last_name = clerk_user.get("last_name") or ""
+    name = " ".join(part for part in (first_name, last_name) if part).strip() or None
+
+    primary_email_id = clerk_user.get("primary_email_address_id")
+    email_addresses = clerk_user.get("email_addresses") or []
+    primary_email = next(
+        (
+            item.get("email_address")
+            for item in email_addresses
+            if item.get("id") == primary_email_id
+        ),
+        None,
+    )
+    if primary_email is None and email_addresses:
+        primary_email = email_addresses[0].get("email_address")
+
+    created_at = clerk_user.get("created_at")
+    if isinstance(created_at, int):
+        created_at = datetime.fromtimestamp(
+            created_at / 1000,
+            tz=timezone.utc,
+        ).isoformat()
+
+    return {
+        "name": name,
+        "email": primary_email,
+        "created_at": created_at,
+    }
+
+
 def signup(request: UserSignupRequest) -> dict:
     clerk_user = _create_clerk_user(request)
     user_id = clerk_user["id"]
@@ -130,21 +181,39 @@ def signup(request: UserSignupRequest) -> dict:
 def get_current_user_info(current_user: dict) -> dict:
     claims = current_user.get("claims", {})
     role = current_user.get("role") or _extract_role(claims)
+    profile = get_user_profile(current_user["user_id"])
+
+    if profile and profile.get("deleted_at") is None:
+        return {
+            "user_id": profile["user_id"],
+            "email": profile.get("email"),
+            "name": profile.get("name"),
+            "role": profile.get("role") or role,
+            "last_active_project_id": profile.get("last_active_project_id"),
+            "created_at": profile.get("created_at"),
+            "updated_at": profile.get("updated_at"),
+            "profile_source": "landerai",
+        }
+
+    clerk_profile = (
+        _get_clerk_user_profile(current_user["user_id"])
+        if settings.AUTH_MODE == "clerk"
+        else {}
+    )
     return {
-        "current_user": {
-            "user_id": current_user["user_id"],
-            "role": role,
-            "email": claims.get("email")
-            or claims.get("email_address")
-            or claims.get("primary_email_address"),
-            "claims": {
-                "sub": claims.get("sub"),
-                "iss": claims.get("iss"),
-                "azp": claims.get("azp"),
-                "sid": claims.get("sid"),
-                "role": role,
-            },
-        },
+        "user_id": current_user["user_id"],
+        "email": clerk_profile.get("email")
+        or claims.get("email")
+        or claims.get("email_address")
+        or claims.get("primary_email_address"),
+        "name": clerk_profile.get("name")
+        or claims.get("name")
+        or claims.get("first_name"),
+        "role": role,
+        "last_active_project_id": None,
+        "created_at": clerk_profile.get("created_at"),
+        "updated_at": None,
+        "profile_source": "clerk_fallback",
     }
 
 

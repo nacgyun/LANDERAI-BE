@@ -17,3 +17,14 @@ class UserResponse(BaseModel):
     updated_at: str
     deleted_at: str | None = None
     last_active_project_id: Any | None = None
+
+
+class CurrentUserResponse(BaseModel):
+    user_id: str
+    email: EmailStr | None = None
+    name: str | None = None
+    role: str | None = None
+    last_active_project_id: Any | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    profile_source: str
