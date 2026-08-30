@@ -3,6 +3,7 @@ name: Deploy Lambda
 on:
   push:
     branches:
+      - develop
       - main
 
 permissions:
@@ -13,16 +14,19 @@ env:
   AWS_REGION: ap-northeast-2
   PYTHON_VERSION: "3.12"
   LAMBDA_ARCH_PLATFORM: manylinux2014_aarch64
-  LAMBDA_FUNCTIONS: >-
-    landerai-dev-api_lambda
-    landerai-dev-embedding_lambda
-    landerai-dev-design_plan_lambda
-    landerai-dev-landing_page_variant_lambda
-    landerai-dev-persist_result_lambda
+  PROJECT_NAME: landerai
+  DEPLOY_ENV: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
+  LAMBDA_NAMES: >-
+    api_lambda
+    embedding_lambda
+    design_plan_lambda
+    landing_page_variant_lambda
+    persist_result_lambda
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
 
     steps:
       - name: Checkout
@@ -37,7 +41,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v6.1.1
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          role-session-name: landerai-be-lambda-deploy
+          role-session-name: landerai-${{ env.DEPLOY_ENV }}-be-lambda-deploy
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Build Lambda package
@@ -77,7 +81,9 @@ jobs:
       - name: Deploy Lambda package
         run: |
           set -euo pipefail
-          for function_name in ${LAMBDA_FUNCTIONS}; do
+          for lambda_name in ${LAMBDA_NAMES}; do
+            function_name="${PROJECT_NAME}-${DEPLOY_ENV}-${lambda_name}"
+
             aws lambda update-function-code \
               --function-name "${function_name}" \
               --zip-file fileb://build/landerai-be-lambda.zip \
