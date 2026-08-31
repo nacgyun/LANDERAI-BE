@@ -135,6 +135,109 @@ def _get_clerk_user_profile(user_id: str) -> dict:
     }
 
 
+def initialize_current_user(current_user: dict) -> dict:
+    """Initialize a Clerk-hosted signup as a LANDERAI USER exactly once."""
+    clerk_secret_key = get_clerk_secret_key()
+    if not clerk_secret_key:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="CLERK_SECRET_KEY is required to initialize Clerk users",
+        )
+
+    user_id = current_user["user_id"]
+    headers = {
+        "Authorization": f"Bearer {clerk_secret_key}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        response = httpx.get(
+            f"https://api.clerk.com/v1/users/{user_id}",
+            headers=headers,
+            timeout=10.0,
+        )
+        response.raise_for_status()
+        clerk_user = response.json()
+
+        role = _extract_role(clerk_user)
+        if role is None:
+            response = httpx.patch(
+                f"https://api.clerk.com/v1/users/{user_id}/metadata",
+                headers=headers,
+                json={"public_metadata": {"role": "USER"}},
+                timeout=10.0,
+            )
+            response.raise_for_status()
+            role = "USER"
+    except httpx.HTTPStatusError as clerk_err:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "message": "Clerk 사용자 초기화가 거부되었습니다.",
+                "clerk_status_code": clerk_err.response.status_code,
+            },
+        ) from clerk_err
+    except httpx.HTTPError as clerk_err:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Clerk 사용자 초기화 요청에 실패했습니다.",
+        ) from clerk_err
+
+    first_name = clerk_user.get("first_name") or ""
+    last_name = clerk_user.get("last_name") or ""
+    name = " ".join(part for part in (first_name, last_name) if part).strip()
+    primary_email_id = clerk_user.get("primary_email_address_id")
+    email_addresses = clerk_user.get("email_addresses") or []
+    email = next(
+        (
+            item.get("email_address")
+            for item in email_addresses
+            if item.get("id") == primary_email_id
+        ),
+        None,
+    )
+    if email is None and email_addresses:
+        email = email_addresses[0].get("email_address")
+
+    now = datetime.now(timezone.utc).isoformat()
+    item = {
+        "PK": f"USER#{user_id}",
+        "SK": "PROFILE",
+        "item_type": "USER",
+        "user_id": user_id,
+        "email": email,
+        "name": name or email or user_id,
+        "last_active_project_id": None,
+        "role": role,
+        "created_at": now,
+        "updated_at": now,
+        "deleted_at": None,
+    }
+
+    initialized = False
+    try:
+        signup_user_profile(item)
+        initialized = True
+    except ClientError as db_err:
+        error_code = db_err.response.get("Error", {}).get("Code")
+        if error_code != "ConditionalCheckFailedException":
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="사용자 프로필 초기화에 실패했습니다.",
+            ) from db_err
+    except BotoCoreError as db_err:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="사용자 프로필 초기화에 실패했습니다.",
+        ) from db_err
+
+    return {
+        "initialized": initialized,
+        "user_id": user_id,
+        "role": role,
+    }
+
+
 def signup(request: UserSignupRequest) -> dict:
     clerk_user = _create_clerk_user(request)
     user_id = clerk_user["id"]
