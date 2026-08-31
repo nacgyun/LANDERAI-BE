@@ -1,4 +1,5 @@
 import boto3
+from botocore.config import Config
 from pathlib import Path
 from urllib.parse import quote
 
@@ -16,6 +17,10 @@ def _use_local_storage() -> bool:
 def _get_s3_client():
     client_kwargs = {
         "region_name": settings.AWS_DEFAULT_REGION or settings.REGION_NAME,
+        "config": Config(
+            signature_version="s3v4",
+            s3={"addressing_style": "virtual"},
+        ),
     }
 
     if settings.S3_ENDPOINT_URL:
@@ -25,6 +30,10 @@ def _get_s3_client():
                 "aws_access_key_id": "dummy",
                 "aws_secret_access_key": "dummy",
                 "aws_session_token": None,
+                "config": Config(
+                    signature_version="s3v4",
+                    s3={"addressing_style": "path"},
+                ),
             }
         )
 
