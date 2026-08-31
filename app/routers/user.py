@@ -1,8 +1,17 @@
 from fastapi import APIRouter, Depends
 
-from app.common.auth import require_user_or_admin
-from app.schemas.user import CurrentUserResponse, UserSignupRequest
-from app.services.user_service import delete_user, get_current_user_info, signup
+from app.common.auth import get_current_user, require_user_or_admin
+from app.schemas.user import (
+    CurrentUserResponse,
+    UserInitializationResponse,
+    UserSignupRequest,
+)
+from app.services.user_service import (
+    delete_user,
+    get_current_user_info,
+    initialize_current_user,
+    signup,
+)
 
 
 router = APIRouter(prefix="/api/v1", tags=["users"])
@@ -10,6 +19,11 @@ router = APIRouter(prefix="/api/v1", tags=["users"])
 @router.post("/users")
 def signup_endpoint(request: UserSignupRequest):
     return signup(request)
+
+
+@router.post("/users/me/initialize", response_model=UserInitializationResponse)
+def initialize_user_endpoint(current_user: dict = Depends(get_current_user)):
+    return initialize_current_user(current_user)
 
 
 @router.get("/users", response_model=CurrentUserResponse)

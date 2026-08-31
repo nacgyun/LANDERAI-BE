@@ -28,3 +28,9 @@ class CurrentUserResponse(BaseModel):
     created_at: str | None = None
     updated_at: str | None = None
     profile_source: str
+
+
+class UserInitializationResponse(BaseModel):
+    initialized: bool
+    user_id: str
+    role: str
