@@ -136,7 +136,6 @@ def _get_clerk_user_profile(user_id: str) -> dict:
 
 
 def initialize_current_user(current_user: dict) -> dict:
-    """Initialize a Clerk-hosted signup as a LANDERAI USER exactly once."""
     clerk_secret_key = get_clerk_secret_key()
     if not clerk_secret_key:
         raise HTTPException(
