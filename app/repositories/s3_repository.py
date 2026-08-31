@@ -115,7 +115,6 @@ def create_landing_page_preview_url(
         Params={
             "Bucket": bucket,
             "Key": key,
-            "ResponseContentType": "text/html; charset=utf-8",
         },
         ExpiresIn=expires_in,
     )
