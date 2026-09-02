@@ -109,3 +109,11 @@ class LandingPageVariantSelectionResponse(BaseModel):
     chosen_variant: Literal["A", "B"] | None
     selected_design_plan_id: str | None = None
     design_plan_vector_key: str | None = None
+
+
+class LandingPageDownloadUrlResponse(BaseModel):
+    request_id: str
+    variant: Literal["A", "B"]
+    filename: str
+    download_url: str
+    expires_in: int

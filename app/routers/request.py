@@ -14,6 +14,7 @@ from app.repositories.request_repository import (
 )
 from app.schemas.request import (
     LandingPageCreateRequest,
+    LandingPageDownloadUrlResponse,
     LandingPagePreviewUrlsResponse,
     LandingPageRequestCreateResponse,
     LandingPageRequestListResponse,
@@ -21,7 +22,10 @@ from app.schemas.request import (
     LandingPageVariantSelectionRequest,
     LandingPageVariantSelectionResponse,
 )
-from app.services.preview_service import get_landing_page_preview_urls
+from app.services.preview_service import (
+    get_landing_page_preview_urls,
+    get_selected_landing_page_download_url,
+)
 from app.services.request_service import (
     create_landing_page_request,
     get_landing_page_request_status,
@@ -125,6 +129,17 @@ def get_landing_page_preview_urls_endpoint(
     current_user: dict = Depends(require_user_or_admin),
 ):
     return get_landing_page_preview_urls(request_id, current_user)
+
+
+@router.get(
+    "/api/v1/requests/{request_id}/download",
+    response_model=LandingPageDownloadUrlResponse,
+)
+def get_selected_landing_page_download_url_endpoint(
+    request_id: str,
+    current_user: dict = Depends(require_user_or_admin),
+):
+    return get_selected_landing_page_download_url(request_id, current_user)
 
 
 @router.get(
