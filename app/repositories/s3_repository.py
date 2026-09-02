@@ -127,3 +127,26 @@ def create_landing_page_preview_url(
         },
         ExpiresIn=expires_in,
     )
+
+
+def create_landing_page_download_url(
+    *,
+    bucket: str,
+    key: str,
+    filename: str,
+    expires_in: int,
+) -> str:
+    if bucket == "local":
+        local_path = Path(settings.LOCAL_STORAGE_DIR) / key
+        return local_path.resolve().as_uri()
+
+    return _get_s3_client().generate_presigned_url(
+        "get_object",
+        Params={
+            "Bucket": bucket,
+            "Key": key,
+            "ResponseContentType": "text/html; charset=utf-8",
+            "ResponseContentDisposition": f'attachment; filename="{filename}"',
+        },
+        ExpiresIn=expires_in,
+    )
