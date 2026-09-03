@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     S3_VECTOR_INDEX_NAME: str | None = None
     S3_VECTOR_ENDPOINT_URL: str | None = None
     S3_VECTOR_NAMESPACE: str = "landing-page-design-plans"
+    REVISION_QUEUE_URL: str | None = None
+    SQS_ENDPOINT_URL: str | None = None
+    REVISION_MAX_RECEIVE_COUNT: int = 3
     LOCAL_STORAGE_DIR: str = ".local-storage"
 
     APP_ENV: str = "local"

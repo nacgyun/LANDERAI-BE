@@ -13,6 +13,10 @@ from app.prompts.landing_page_prompt import (
     build_landing_page_user_prompt,
     get_landing_page_system_prompt,
 )
+from app.prompts.revision_prompt import (
+    build_revision_user_prompt,
+    get_revision_system_prompt,
+)
 from app.schemas.design_plan import DesignPlanCreateRequest, DesignPlanResponse
 from app.schemas.landing_page import LandingPageGenerationResponse
 
@@ -117,3 +121,41 @@ def generate_landing_page_variant(
     output_tokens = usage.completion_tokens if usage else 0
 
     return validated_landing_page, input_tokens, output_tokens
+
+
+def revise_landing_page(
+    *,
+    source_html: str,
+    revision_prompt: str,
+) -> tuple[LandingPageGenerationResponse, int, int]:
+    client = get_openai_client()
+    response = client.chat.completions.create(
+        model="gpt-5.6-luna",
+        messages=[
+            {"role": "system", "content": get_revision_system_prompt()},
+            {
+                "role": "user",
+                "content": build_revision_user_prompt(
+                    source_html=source_html,
+                    revision_prompt=revision_prompt,
+                ),
+            },
+        ],
+        response_format={"type": "json_object"},
+    )
+    generated_revision = response.choices[0].message.content
+    if not generated_revision or not generated_revision.strip():
+        raise ValueError("AI가 생성한 Revision JSON이 비어있습니다.")
+
+    try:
+        generated_payload = json.loads(generated_revision)
+    except json.JSONDecodeError as json_err:
+        raise ValueError(
+            f"AI가 유효하지 않은 Revision JSON을 반환했습니다: {json_err}"
+        ) from json_err
+
+    validated_revision = LandingPageGenerationResponse.model_validate(generated_payload)
+    usage = response.usage
+    input_tokens = usage.prompt_tokens if usage else 0
+    output_tokens = usage.completion_tokens if usage else 0
+    return validated_revision, input_tokens, output_tokens

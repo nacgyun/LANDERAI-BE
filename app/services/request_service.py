@@ -18,7 +18,7 @@ from app.repositories.request_repository import (
     get_landing_page_request,
     get_landing_page_result,
     save_landing_page_request,
-    save_landing_page_variant_selection,
+    save_initial_revision_and_landing_page_variant_selection,
 )
 from app.repositories.rag_design_plan_repository import (
     save_rag_design_plan,
@@ -29,6 +29,7 @@ from app.schemas.request import (
     LandingPageCreateRequest,
     LandingPageVariantSelectionRequest,
 )
+from app.schemas.revision import LandingPageRevision
 from app.config.settings import settings
 from app.services.openai_service import generate_embedding
 
@@ -161,6 +162,8 @@ def create_landing_page_request(
         "error_message": None,
         "selection_status": "NOT_SELECTED",
         "chosen_variant": None,
+        "latest_revision_id": None,
+        "published_revision_id": None,
         "created_at": now,
         "updated_at": now,
     }
@@ -212,6 +215,8 @@ def get_landing_page_request_status(
         "landing_result_id": request_item.get("landing_result_id"),
         "selection_status": request_item.get("selection_status"),
         "chosen_variant": request_item.get("chosen_variant"),
+        "latest_revision_id": request_item.get("latest_revision_id"),
+        "published_revision_id": request_item.get("published_revision_id"),
         "created_at": request_item.get("created_at"),
         "updated_at": request_item.get("updated_at"),
     }
@@ -240,6 +245,8 @@ def get_landing_page_variant_selection(
             "chosen_variant": None,
             "selected_design_plan_id": None,
             "design_plan_vector_key": None,
+            "latest_revision_id": None,
+            "published_revision_id": None,
         }
 
     return {
@@ -249,6 +256,8 @@ def get_landing_page_variant_selection(
         "chosen_variant": chosen_variant,
         "selected_design_plan_id": request_item.get("selected_design_plan_id"),
         "design_plan_vector_key": request_item.get("design_plan_vector_key"),
+        "latest_revision_id": request_item.get("latest_revision_id"),
+        "published_revision_id": request_item.get("published_revision_id"),
     }
 
 
@@ -259,6 +268,15 @@ def select_landing_page_variant(
 ) -> dict:
     try:
         request_item = _get_accessible_landing_page_request(request_id, current_user)
+
+        if (
+            request_item.get("selection_status") == "SELECTED"
+            or request_item.get("chosen_variant")
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A/B안 선택이 이미 완료되었습니다.",
+            )
 
         request_status = request_item.get("status")
         if request_status != STATUS_COMPLETED:
@@ -366,8 +384,38 @@ def select_landing_page_variant(
             updated_at=now,
         )
 
-        save_landing_page_variant_selection(
+        revision_id = f"rev_{uuid.uuid4().hex}"
+        initial_revision = LandingPageRevision(
+            revision_id=revision_id,
+            request_id=request_id,
+            source_revision_id=None,
+            revision_prompt=None,
+            source_type="VARIANT",
+            source_variant=request.selected_variant,
+            html_s3_bucket=variant_payload.get("html_s3_bucket"),
+            html_s3_key=variant_payload.get("html_s3_key"),
+            created_at=now,
+            updated_at=now,
+            status="COMPLETED",
+        )
+        initial_revision_item = {
+            # LandingResult uses result_id as its table partition key.
+            "result_id": revision_id,
+            "item_type": "REVISION",
+            **initial_revision.model_dump(),
+        }
+        if (
+            not initial_revision_item["html_s3_bucket"]
+            or not initial_revision_item["html_s3_key"]
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="선택한 variant의 HTML 저장 정보가 없습니다.",
+            )
+
+        save_initial_revision_and_landing_page_variant_selection(
             request_id,
+            revision_item=initial_revision_item,
             chosen_variant=request.selected_variant,
             selected_design_plan_id=selected_design_plan_id,
             design_plan_vector_store=vector_storage["design_plan_vector_store"],
@@ -386,6 +434,8 @@ def select_landing_page_variant(
             "chosen_variant": request.selected_variant,
             "selected_design_plan_id": selected_design_plan_id,
             "design_plan_vector_key": vector_storage["design_plan_vector_key"],
+            "latest_revision_id": revision_id,
+            "published_revision_id": None,
         }
     except HTTPException:
         raise
