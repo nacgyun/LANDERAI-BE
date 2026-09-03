@@ -22,6 +22,7 @@ env:
     design_plan_lambda
     landing_page_variant_lambda
     persist_result_lambda
+    revision_worker_lambda
 
 jobs:
   deploy:

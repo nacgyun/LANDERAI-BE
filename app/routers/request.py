@@ -22,6 +22,11 @@ from app.schemas.request import (
     LandingPageVariantSelectionRequest,
     LandingPageVariantSelectionResponse,
 )
+from app.schemas.revision import (
+    LandingPageRevision,
+    LandingPageRevisionCreateRequest,
+    LandingPageRevisionListResponse,
+)
 from app.services.preview_service import (
     get_landing_page_preview_urls,
     get_selected_landing_page_download_url,
@@ -31,6 +36,12 @@ from app.services.request_service import (
     get_landing_page_request_status,
     get_landing_page_variant_selection,
     select_landing_page_variant,
+)
+from app.services.revision_service import (
+    create_landing_page_revision,
+    enqueue_revision,
+    get_revision,
+    list_revisions,
 )
 from app.services.workflow_service import start_landing_page_workflow
 
@@ -140,6 +151,44 @@ def get_selected_landing_page_download_url_endpoint(
     current_user: dict = Depends(require_user_or_admin),
 ):
     return get_selected_landing_page_download_url(request_id, current_user)
+
+
+@router.post(
+    "/api/v1/requests/{request_id}/revisions",
+    response_model=LandingPageRevision,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def create_landing_page_revision_endpoint(
+    request_id: str,
+    request: LandingPageRevisionCreateRequest,
+    current_user: dict = Depends(require_user_or_admin),
+):
+    revision = create_landing_page_revision(request_id, request, current_user)
+    enqueue_revision(request_id, revision["revision_id"])
+    return revision
+
+
+@router.get(
+    "/api/v1/requests/{request_id}/revisions",
+    response_model=LandingPageRevisionListResponse,
+)
+def list_landing_page_revisions_endpoint(
+    request_id: str,
+    current_user: dict = Depends(require_user_or_admin),
+):
+    return list_revisions(request_id, current_user)
+
+
+@router.get(
+    "/api/v1/requests/{request_id}/revisions/{revision_id}",
+    response_model=LandingPageRevision,
+)
+def get_landing_page_revision_endpoint(
+    request_id: str,
+    revision_id: str,
+    current_user: dict = Depends(require_user_or_admin),
+):
+    return get_revision(request_id, revision_id, current_user)
 
 
 @router.get(

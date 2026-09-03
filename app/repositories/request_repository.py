@@ -1,6 +1,9 @@
 from decimal import Decimal
 from typing import Any
 
+from boto3.dynamodb.types import TypeSerializer
+from boto3.dynamodb.conditions import Key
+
 from app.repositories.dynamodb_setup import get_request_table, get_result_table
 
 
@@ -256,6 +259,167 @@ def get_landing_page_result(result_id: str) -> dict[str, Any] | None:
     return response.get("Item")
 
 
+def save_landing_page_revision(item: dict[str, Any]) -> None:
+    get_result_table().put_item(
+        Item=_to_dynamodb_safe_item(item),
+        ConditionExpression="attribute_not_exists(result_id)",
+    )
+
+
+def get_landing_page_revision(revision_id: str) -> dict[str, Any] | None:
+    item = get_landing_page_result(revision_id)
+    if item is None or item.get("item_type") != "REVISION":
+        return None
+    return item
+
+
+def list_landing_page_revisions(request_id: str) -> list[dict[str, Any]]:
+    table = get_result_table()
+    query_kwargs: dict[str, Any] = {
+        "IndexName": "RequestIdIndex",
+        "KeyConditionExpression": Key("request_id").eq(request_id),
+        "FilterExpression": "item_type = :item_type",
+        "ExpressionAttributeValues": {":item_type": "REVISION"},
+    }
+    items: list[dict[str, Any]] = []
+    while True:
+        response = table.query(**query_kwargs)
+        items.extend(response.get("Items", []))
+        last_key = response.get("LastEvaluatedKey")
+        if not last_key:
+            break
+        query_kwargs["ExclusiveStartKey"] = last_key
+    return sorted(items, key=lambda item: item.get("created_at", ""), reverse=True)
+
+
+def mark_landing_page_revision_failed(
+    revision_id: str,
+    *,
+    error_type: str,
+    error_message: str,
+    updated_at: str,
+) -> None:
+    get_result_table().update_item(
+        Key={"result_id": revision_id},
+        UpdateExpression=(
+            "SET #status = :failed, error_type = :error_type, "
+            "error_message = :error_message, updated_at = :updated_at"
+        ),
+        ConditionExpression=(
+            "item_type = :item_type AND "
+            "(#status = :queued OR #status = :processing)"
+        ),
+        ExpressionAttributeNames={"#status": "status"},
+        ExpressionAttributeValues={
+            ":failed": "FAILED",
+            ":processing": "PROCESSING",
+            ":queued": "QUEUED",
+            ":item_type": "REVISION",
+            ":error_type": error_type,
+            ":error_message": error_message,
+            ":updated_at": updated_at,
+        },
+    )
+
+
+def mark_landing_page_revision_processing(
+    revision_id: str,
+    *,
+    processing_started_at: str,
+    updated_at: str,
+) -> None:
+    get_result_table().update_item(
+        Key={"result_id": revision_id},
+        UpdateExpression=(
+            "SET #status = :processing, "
+            "processing_started_at = :processing_started_at, "
+            "updated_at = :updated_at"
+        ),
+        ConditionExpression="item_type = :item_type AND #status = :queued",
+        ExpressionAttributeNames={"#status": "status"},
+        ExpressionAttributeValues={
+            ":queued": "QUEUED",
+            ":processing": "PROCESSING",
+            ":item_type": "REVISION",
+            ":processing_started_at": processing_started_at,
+            ":updated_at": updated_at,
+        },
+    )
+
+
+def complete_landing_page_revision(
+    request_id: str,
+    revision_id: str,
+    *,
+    title: str,
+    html_s3_bucket: str,
+    html_s3_key: str,
+    input_tokens: int,
+    output_tokens: int,
+    updated_at: str,
+) -> None:
+    serializer = TypeSerializer()
+
+    def serialize_map(value: dict[str, Any]) -> dict[str, Any]:
+        safe_value = _to_dynamodb_safe_item(value)
+        return {key: serializer.serialize(child) for key, child in safe_value.items()}
+
+    request_table = get_request_table()
+    result_table = get_result_table()
+    request_table.meta.client.transact_write_items(
+        TransactItems=[
+            {
+                "Update": {
+                    "TableName": result_table.name,
+                    "Key": serialize_map({"result_id": revision_id}),
+                    "UpdateExpression": (
+                        "SET #status = :completed, title = :title, "
+                        "html_s3_bucket = :html_s3_bucket, "
+                        "html_s3_key = :html_s3_key, "
+                        "revision_input_tokens = :input_tokens, "
+                        "revision_output_tokens = :output_tokens, "
+                        "updated_at = :updated_at"
+                    ),
+                    "ConditionExpression": (
+                        "item_type = :item_type AND #status = :processing"
+                    ),
+                    "ExpressionAttributeNames": {"#status": "status"},
+                    "ExpressionAttributeValues": serialize_map(
+                        {
+                            ":completed": "COMPLETED",
+                            ":processing": "PROCESSING",
+                            ":item_type": "REVISION",
+                            ":title": title,
+                            ":html_s3_bucket": html_s3_bucket,
+                            ":html_s3_key": html_s3_key,
+                            ":input_tokens": input_tokens,
+                            ":output_tokens": output_tokens,
+                            ":updated_at": updated_at,
+                        }
+                    ),
+                }
+            },
+            {
+                "Update": {
+                    "TableName": request_table.name,
+                    "Key": serialize_map({"request_id": request_id}),
+                    "UpdateExpression": (
+                        "SET latest_revision_id = :revision_id, "
+                        "updated_at = :updated_at"
+                    ),
+                    "ConditionExpression": "attribute_exists(request_id)",
+                    "ExpressionAttributeValues": serialize_map(
+                        {
+                            ":revision_id": revision_id,
+                            ":updated_at": updated_at,
+                        }
+                    ),
+                }
+            },
+        ]
+    )
+
+
 def save_landing_page_result_reference(
     request_id: str,
     *,
@@ -278,9 +442,10 @@ def save_landing_page_result_reference(
     )
 
 
-def save_landing_page_variant_selection(
+def save_initial_revision_and_landing_page_variant_selection(
     request_id: str,
     *,
+    revision_item: dict[str, Any],
     chosen_variant: str,
     selected_design_plan_id: str,
     design_plan_vector_store: str,
@@ -291,33 +456,64 @@ def save_landing_page_variant_selection(
     selected_at: str,
     updated_at: str,
 ) -> None:
-    get_request_table().update_item(
-        Key={
-            "request_id": request_id,
-        },
-        UpdateExpression=(
-            "SET selection_status = :selection_status, "
-            "chosen_variant = :chosen_variant, "
-            "selected_design_plan_id = :selected_design_plan_id, "
-            "design_plan_vector_store = :design_plan_vector_store, "
-            "design_plan_vector_bucket = :design_plan_vector_bucket, "
-            "design_plan_vector_index = :design_plan_vector_index, "
-            "design_plan_vector_key = :design_plan_vector_key, "
-            "design_plan_vector_uri = :design_plan_vector_uri, "
-            "selected_at = :selected_at, "
-            "updated_at = :updated_at"
-        ),
-        ConditionExpression="attribute_exists(request_id)",
-        ExpressionAttributeValues={
-            ":selection_status": "SELECTED",
-            ":chosen_variant": chosen_variant,
-            ":selected_design_plan_id": selected_design_plan_id,
-            ":design_plan_vector_store": design_plan_vector_store,
-            ":design_plan_vector_bucket": design_plan_vector_bucket,
-            ":design_plan_vector_index": design_plan_vector_index,
-            ":design_plan_vector_key": design_plan_vector_key,
-            ":design_plan_vector_uri": design_plan_vector_uri,
-            ":selected_at": selected_at,
-            ":updated_at": updated_at,
-        },
+    serializer = TypeSerializer()
+
+    def serialize_map(value: dict[str, Any]) -> dict[str, Any]:
+        safe_value = _to_dynamodb_safe_item(value)
+        return {key: serializer.serialize(child) for key, child in safe_value.items()}
+
+    revision_id = revision_item["revision_id"]
+    request_table = get_request_table()
+    result_table = get_result_table()
+    transaction_client = request_table.meta.client
+    transaction_client.transact_write_items(
+        TransactItems=[
+            {
+                "Put": {
+                    "TableName": result_table.name,
+                    "Item": serialize_map(revision_item),
+                    "ConditionExpression": "attribute_not_exists(result_id)",
+                }
+            },
+            {
+                "Update": {
+                    "TableName": request_table.name,
+                    "Key": serialize_map({"request_id": request_id}),
+                    "UpdateExpression": (
+                        "SET selection_status = :selection_status, "
+                        "chosen_variant = :chosen_variant, "
+                        "selected_design_plan_id = :selected_design_plan_id, "
+                        "design_plan_vector_store = :design_plan_vector_store, "
+                        "design_plan_vector_bucket = :design_plan_vector_bucket, "
+                        "design_plan_vector_index = :design_plan_vector_index, "
+                        "design_plan_vector_key = :design_plan_vector_key, "
+                        "design_plan_vector_uri = :design_plan_vector_uri, "
+                        "latest_revision_id = :latest_revision_id, "
+                        "selected_at = :selected_at, "
+                        "updated_at = :updated_at"
+                    ),
+                    "ConditionExpression": (
+                        "attribute_exists(request_id) AND "
+                        "(attribute_not_exists(selection_status) OR "
+                        "selection_status <> :selected)"
+                    ),
+                    "ExpressionAttributeValues": serialize_map(
+                        {
+                            ":selection_status": "SELECTED",
+                            ":selected": "SELECTED",
+                            ":chosen_variant": chosen_variant,
+                            ":selected_design_plan_id": selected_design_plan_id,
+                            ":design_plan_vector_store": design_plan_vector_store,
+                            ":design_plan_vector_bucket": design_plan_vector_bucket,
+                            ":design_plan_vector_index": design_plan_vector_index,
+                            ":design_plan_vector_key": design_plan_vector_key,
+                            ":design_plan_vector_uri": design_plan_vector_uri,
+                            ":latest_revision_id": revision_id,
+                            ":selected_at": selected_at,
+                            ":updated_at": updated_at,
+                        }
+                    ),
+                }
+            },
+        ]
     )

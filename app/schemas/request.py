@@ -59,6 +59,8 @@ class LandingPageRequestStatusResponse(BaseModel):
     landing_result_id: str | None = None
     selection_status: str | None = None
     chosen_variant: Literal["A", "B"] | None = None
+    latest_revision_id: str | None = None
+    published_revision_id: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
 
@@ -109,6 +111,8 @@ class LandingPageVariantSelectionResponse(BaseModel):
     chosen_variant: Literal["A", "B"] | None
     selected_design_plan_id: str | None = None
     design_plan_vector_key: str | None = None
+    latest_revision_id: str | None = None
+    published_revision_id: str | None = None
 
 
 class LandingPageDownloadUrlResponse(BaseModel):

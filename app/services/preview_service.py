@@ -6,6 +6,7 @@ from fastapi import HTTPException, status
 from app.repositories.request_repository import (
     get_landing_page_request,
     get_landing_page_result,
+    get_landing_page_revision,
 )
 from app.repositories.s3_repository import (
     create_landing_page_download_url,
@@ -154,23 +155,33 @@ def get_selected_landing_page_download_url(
                 detail="다운로드할 A/B안을 먼저 선택해 주세요.",
             )
 
-        landing_result_id = request_item.get("landing_result_id")
-        if not landing_result_id:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="완료된 요청에 결과 참조가 없습니다.",
-            )
-
-        result_item = get_landing_page_result(landing_result_id)
-        if result_item is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="랜딩페이지 결과를 찾을 수 없습니다.",
-            )
-
-        variant_payload = result_item.get("variants", {}).get(chosen_variant, {})
-        bucket = variant_payload.get("html_s3_bucket")
-        key = variant_payload.get("html_s3_key")
+        latest_revision_id = request_item.get("latest_revision_id")
+        if latest_revision_id:
+            revision_item = get_landing_page_revision(latest_revision_id)
+            if revision_item is None or revision_item.get("status") != "COMPLETED":
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="최신 Revision 결과를 찾을 수 없습니다.",
+                )
+            bucket = revision_item.get("html_s3_bucket")
+            key = revision_item.get("html_s3_key")
+        else:
+            # Backward compatibility for selections saved before revisions existed.
+            landing_result_id = request_item.get("landing_result_id")
+            if not landing_result_id:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="완료된 요청에 결과 참조가 없습니다.",
+                )
+            result_item = get_landing_page_result(landing_result_id)
+            if result_item is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="랜딩페이지 결과를 찾을 수 없습니다.",
+                )
+            variant_payload = result_item.get("variants", {}).get(chosen_variant, {})
+            bucket = variant_payload.get("html_s3_bucket")
+            key = variant_payload.get("html_s3_key")
         if not bucket or not key:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
