@@ -1,7 +1,6 @@
 from decimal import Decimal
 from typing import Any
 
-from boto3.dynamodb.types import TypeSerializer
 from boto3.dynamodb.conditions import Key
 
 from app.repositories.dynamodb_setup import get_request_table, get_result_table
@@ -358,11 +357,11 @@ def complete_landing_page_revision(
     output_tokens: int,
     updated_at: str,
 ) -> None:
-    serializer = TypeSerializer()
-
     def serialize_map(value: dict[str, Any]) -> dict[str, Any]:
-        safe_value = _to_dynamodb_safe_item(value)
-        return {key: serializer.serialize(child) for key, child in safe_value.items()}
+        # Table.meta.client inherits the DynamoDB resource's attribute-value
+        # transformer, so it expects native Python values here. Pre-serializing
+        # with TypeSerializer would serialize them a second time.
+        return _to_dynamodb_safe_item(value)
 
     request_table = get_request_table()
     result_table = get_result_table()
@@ -456,11 +455,10 @@ def save_initial_revision_and_landing_page_variant_selection(
     selected_at: str,
     updated_at: str,
 ) -> None:
-    serializer = TypeSerializer()
-
     def serialize_map(value: dict[str, Any]) -> dict[str, Any]:
-        safe_value = _to_dynamodb_safe_item(value)
-        return {key: serializer.serialize(child) for key, child in safe_value.items()}
+        # Table.meta.client automatically converts native Python values to
+        # DynamoDB AttributeValue objects for resource-originated clients.
+        return _to_dynamodb_safe_item(value)
 
     revision_id = revision_item["revision_id"]
     request_table = get_request_table()
