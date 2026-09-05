@@ -39,3 +39,10 @@ class LandingPageRevision(BaseModel):
 class LandingPageRevisionListResponse(BaseModel):
     items: list[LandingPageRevision]
     total: int
+
+
+class LandingPageRevisionPreviewUrlResponse(BaseModel):
+    request_id: str
+    revision_id: str
+    preview_url: str
+    expires_in: int

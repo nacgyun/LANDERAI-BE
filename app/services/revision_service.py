@@ -15,11 +15,15 @@ from app.repositories.request_repository import (
 )
 from app.messaging.revision_publisher import publish_revision_requested
 from app.repositories.s3_repository import (
+    create_landing_page_preview_url,
     get_landing_page_html,
     upload_landing_page_revision_html,
 )
 from app.schemas.revision import LandingPageRevision, LandingPageRevisionCreateRequest
 from app.services.openai_service import revise_landing_page
+
+
+REVISION_PREVIEW_URL_EXPIRES_IN_SECONDS = 900
 
 
 def _now() -> str:
@@ -220,6 +224,45 @@ def get_revision(
         raise
     except (BotoCoreError, ClientError) as err:
         raise HTTPException(status_code=503, detail=f"Revision 조회에 실패했습니다. 원인: {err}") from err
+
+
+def get_revision_preview_url(
+    request_id: str,
+    revision_id: str,
+    current_user: dict,
+) -> dict:
+    revision = get_revision(request_id, revision_id, current_user)
+    if revision.get("status") != "COMPLETED":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="완료된 Revision만 미리 볼 수 있습니다.",
+        )
+
+    bucket = revision.get("html_s3_bucket")
+    key = revision.get("html_s3_key")
+    if not bucket or not key:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Revision의 HTML 저장 정보가 없습니다.",
+        )
+
+    try:
+        preview_url = create_landing_page_preview_url(
+            bucket=bucket,
+            key=key,
+            expires_in=REVISION_PREVIEW_URL_EXPIRES_IN_SECONDS,
+        )
+        return {
+            "request_id": request_id,
+            "revision_id": revision_id,
+            "preview_url": preview_url,
+            "expires_in": REVISION_PREVIEW_URL_EXPIRES_IN_SECONDS,
+        }
+    except (BotoCoreError, ClientError) as err:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Revision 미리보기 URL 생성에 실패했습니다. 원인: {err}",
+        ) from err
 
 
 def list_revisions(request_id: str, current_user: dict) -> dict:

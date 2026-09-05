@@ -26,6 +26,7 @@ from app.schemas.revision import (
     LandingPageRevision,
     LandingPageRevisionCreateRequest,
     LandingPageRevisionListResponse,
+    LandingPageRevisionPreviewUrlResponse,
 )
 from app.services.preview_service import (
     get_landing_page_preview_urls,
@@ -41,6 +42,7 @@ from app.services.revision_service import (
     create_landing_page_revision,
     enqueue_revision,
     get_revision,
+    get_revision_preview_url,
     list_revisions,
 )
 from app.services.workflow_service import start_landing_page_workflow
@@ -189,6 +191,18 @@ def get_landing_page_revision_endpoint(
     current_user: dict = Depends(require_user_or_admin),
 ):
     return get_revision(request_id, revision_id, current_user)
+
+
+@router.get(
+    "/api/v1/requests/{request_id}/revisions/{revision_id}/preview-url",
+    response_model=LandingPageRevisionPreviewUrlResponse,
+)
+def get_landing_page_revision_preview_url_endpoint(
+    request_id: str,
+    revision_id: str,
+    current_user: dict = Depends(require_user_or_admin),
+):
+    return get_revision_preview_url(request_id, revision_id, current_user)
 
 
 @router.get(

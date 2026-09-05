@@ -21,6 +21,60 @@ from app.schemas.design_plan import DesignPlanCreateRequest, DesignPlanResponse
 from app.schemas.landing_page import LandingPageGenerationResponse
 
 
+LANDING_PAGE_VALIDATION_ATTEMPTS = 2
+
+
+def _generate_validated_landing_page(
+    *,
+    client: OpenAI,
+    messages: list[dict[str, str]],
+    empty_error_message: str,
+) -> tuple[LandingPageGenerationResponse, int, int]:
+    total_input_tokens = 0
+    total_output_tokens = 0
+    validation_error: Exception | None = None
+
+    for attempt in range(LANDING_PAGE_VALIDATION_ATTEMPTS):
+        attempt_messages = list(messages)
+        if validation_error is not None:
+            attempt_messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "The previous output failed server validation. Generate the entire "
+                        "JSON response again and fix the following error. Do not explain the fix.\n"
+                        f"VALIDATION_ERROR: {validation_error}"
+                    ),
+                }
+            )
+
+        response = client.chat.completions.create(
+            model="gpt-5.6-luna",
+            messages=attempt_messages,
+            response_format={"type": "json_object"},
+        )
+        usage = response.usage
+        total_input_tokens += usage.prompt_tokens if usage else 0
+        total_output_tokens += usage.completion_tokens if usage else 0
+        generated_content = response.choices[0].message.content
+
+        try:
+            if not generated_content or not generated_content.strip():
+                raise ValueError(empty_error_message)
+            generated_payload = json.loads(generated_content)
+            validated = LandingPageGenerationResponse.model_validate(generated_payload)
+            return validated, total_input_tokens, total_output_tokens
+        except (json.JSONDecodeError, ValueError) as err:
+            validation_error = err
+            if attempt == LANDING_PAGE_VALIDATION_ATTEMPTS - 1:
+                raise ValueError(
+                    "AI 출력이 교정 재시도 후에도 HTML 검증을 통과하지 못했습니다: "
+                    f"{err}"
+                ) from err
+
+    raise RuntimeError("랜딩페이지 생성 재시도 루프가 예기치 않게 종료되었습니다.")
+
+
 def get_openai_client() -> OpenAI:
     api_key = get_openai_api_key()
     if not api_key:
@@ -89,8 +143,8 @@ def generate_landing_page_variant(
     mutation: dict[str, Any] | None = None,
 ) -> tuple[LandingPageGenerationResponse, int, int]:
     client = get_openai_client()
-    response = client.chat.completions.create(
-        model="gpt-5.6-luna",
+    return _generate_validated_landing_page(
+        client=client,
         messages=[
             {"role": "system", "content": get_landing_page_system_prompt()},
             {
@@ -102,25 +156,8 @@ def generate_landing_page_variant(
                 ),
             },
         ],
-        response_format={"type": "json_object"},
+        empty_error_message="AI가 생성한 랜딩페이지 JSON이 비어있습니다.",
     )
-    generated_landing_page = response.choices[0].message.content
-
-    if not generated_landing_page or len(generated_landing_page.strip()) == 0:
-        raise ValueError("AI가 생성한 랜딩페이지 JSON이 비어있습니다.")
-
-    try:
-        generated_payload = json.loads(generated_landing_page)
-    except json.JSONDecodeError as json_err:
-        raise ValueError(f"AI가 유효하지 않은 JSON을 반환했습니다: {json_err}") from json_err
-
-    validated_landing_page = LandingPageGenerationResponse.model_validate(generated_payload)
-
-    usage = response.usage
-    input_tokens = usage.prompt_tokens if usage else 0
-    output_tokens = usage.completion_tokens if usage else 0
-
-    return validated_landing_page, input_tokens, output_tokens
 
 
 def revise_landing_page(
@@ -129,8 +166,8 @@ def revise_landing_page(
     revision_prompt: str,
 ) -> tuple[LandingPageGenerationResponse, int, int]:
     client = get_openai_client()
-    response = client.chat.completions.create(
-        model="gpt-5.6-luna",
+    return _generate_validated_landing_page(
+        client=client,
         messages=[
             {"role": "system", "content": get_revision_system_prompt()},
             {
@@ -141,21 +178,5 @@ def revise_landing_page(
                 ),
             },
         ],
-        response_format={"type": "json_object"},
+        empty_error_message="AI가 생성한 Revision JSON이 비어있습니다.",
     )
-    generated_revision = response.choices[0].message.content
-    if not generated_revision or not generated_revision.strip():
-        raise ValueError("AI가 생성한 Revision JSON이 비어있습니다.")
-
-    try:
-        generated_payload = json.loads(generated_revision)
-    except json.JSONDecodeError as json_err:
-        raise ValueError(
-            f"AI가 유효하지 않은 Revision JSON을 반환했습니다: {json_err}"
-        ) from json_err
-
-    validated_revision = LandingPageGenerationResponse.model_validate(generated_payload)
-    usage = response.usage
-    input_tokens = usage.prompt_tokens if usage else 0
-    output_tokens = usage.completion_tokens if usage else 0
-    return validated_revision, input_tokens, output_tokens
