@@ -15,6 +15,7 @@ from app.repositories.request_repository import (
 )
 from app.messaging.revision_publisher import publish_revision_requested
 from app.repositories.s3_repository import (
+    create_landing_page_download_url,
     create_landing_page_preview_url,
     get_landing_page_html,
     upload_landing_page_revision_html,
@@ -24,6 +25,7 @@ from app.services.openai_service import revise_landing_page
 
 
 REVISION_PREVIEW_URL_EXPIRES_IN_SECONDS = 900
+REVISION_DOWNLOAD_URL_EXPIRES_IN_SECONDS = 300
 
 
 def _now() -> str:
@@ -262,6 +264,48 @@ def get_revision_preview_url(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Revision 미리보기 URL 생성에 실패했습니다. 원인: {err}",
+        ) from err
+
+
+def get_revision_download_url(
+    request_id: str,
+    revision_id: str,
+    current_user: dict,
+) -> dict:
+    revision = get_revision(request_id, revision_id, current_user)
+    if revision.get("status") != "COMPLETED":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="완료된 버전만 다운로드할 수 있습니다.",
+        )
+
+    bucket = revision.get("html_s3_bucket")
+    key = revision.get("html_s3_key")
+    if not bucket or not key:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="버전의 HTML 저장 정보가 없습니다.",
+        )
+
+    filename = f"landerai-{request_id}-{revision_id}.html"
+    try:
+        download_url = create_landing_page_download_url(
+            bucket=bucket,
+            key=key,
+            filename=filename,
+            expires_in=REVISION_DOWNLOAD_URL_EXPIRES_IN_SECONDS,
+        )
+        return {
+            "request_id": request_id,
+            "revision_id": revision_id,
+            "filename": filename,
+            "download_url": download_url,
+            "expires_in": REVISION_DOWNLOAD_URL_EXPIRES_IN_SECONDS,
+        }
+    except (BotoCoreError, ClientError) as err:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"버전 다운로드 URL 생성에 실패했습니다. 원인: {err}",
         ) from err
 
 
