@@ -46,3 +46,11 @@ class LandingPageRevisionPreviewUrlResponse(BaseModel):
     revision_id: str
     preview_url: str
     expires_in: int
+
+
+class LandingPageRevisionDownloadUrlResponse(BaseModel):
+    request_id: str
+    revision_id: str
+    filename: str
+    download_url: str
+    expires_in: int
