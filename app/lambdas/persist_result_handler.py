@@ -65,6 +65,7 @@ def lambda_handler(event, context):
         save_landing_page_result(
             {
                 "result_id": result_id,
+                "item_type": "INITIAL_RESULT",
                 "request_id": request_id,
                 "result_type": "LANDING_PAGE_VARIANTS",
                 "variants": variants,

@@ -7,7 +7,9 @@ from app.repositories.request_repository import (
     get_landing_page_request,
     get_landing_page_result,
 )
-from app.repositories.s3_repository import create_landing_page_preview_url
+from app.repositories.s3_repository import (
+    create_landing_page_preview_url,
+)
 
 
 PREVIEW_URL_EXPIRES_IN_SECONDS = 900
