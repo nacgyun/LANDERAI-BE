@@ -61,6 +61,12 @@ class LandingPageRequestStatusResponse(BaseModel):
     chosen_variant: Literal["A", "B"] | None = None
     latest_revision_id: str | None = None
     published_revision_id: str | None = None
+    site_id: str | None = None
+    site_name: str | None = None
+    site_slug: str | None = None
+    hosting_status: str | None = None
+    published_url: str | None = None
+    published_at: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
 

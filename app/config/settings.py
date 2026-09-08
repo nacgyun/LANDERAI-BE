@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     S3_BUCKET_NAME: str | None = None
     S3_ENDPOINT_URL: str | None = None
     S3_PUBLIC_BASE_URL: str | None = None
+    HOSTING_S3_BUCKET_NAME: str | None = None
+    HOSTING_BASE_DOMAIN: str | None = None
     S3_VECTOR_BUCKET_NAME: str | None = "landerai-designplan-vector"
     S3_VECTOR_INDEX_NAME: str | None = None
     S3_VECTOR_ENDPOINT_URL: str | None = None

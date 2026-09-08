@@ -70,6 +70,11 @@ def build_landing_page_revision_key(
     )
 
 
+def build_published_landing_page_key(*, site_slug: str) -> str:
+    safe_site_slug = quote(site_slug, safe="-_.~")
+    return f"published/{safe_site_slug}/index.html"
+
+
 def _write_landing_page_html_to_local_file(*, key: str, html: str) -> dict:
     local_path = Path(settings.LOCAL_STORAGE_DIR) / key
     local_path.parent.mkdir(parents=True, exist_ok=True)
@@ -171,6 +176,50 @@ def get_landing_page_html(*, bucket: str, key: str) -> str:
 
     response = _get_s3_client().get_object(Bucket=bucket, Key=key)
     return response["Body"].read().decode("utf-8")
+
+
+def publish_landing_page_html(
+    *,
+    source_bucket: str,
+    source_key: str,
+    site_slug: str,
+) -> dict:
+    published_key = build_published_landing_page_key(site_slug=site_slug)
+    if _use_local_storage():
+        source_path = Path(settings.LOCAL_STORAGE_DIR) / source_key
+        html = source_path.read_text(encoding="utf-8")
+        return _write_landing_page_html_to_local_file(key=published_key, html=html)
+
+    if not settings.HOSTING_S3_BUCKET_NAME:
+        raise ValueError("HOSTING_S3_BUCKET_NAME is required for hosting")
+
+    _get_s3_client().copy_object(
+        Bucket=settings.HOSTING_S3_BUCKET_NAME,
+        Key=published_key,
+        CopySource={"Bucket": source_bucket, "Key": source_key},
+        MetadataDirective="REPLACE",
+        ContentType="text/html; charset=utf-8",
+        CacheControl="no-cache, no-store, must-revalidate",
+    )
+    return {
+        "html_s3_bucket": settings.HOSTING_S3_BUCKET_NAME,
+        "html_s3_key": published_key,
+    }
+
+
+def delete_published_landing_page(*, site_slug: str) -> None:
+    published_key = build_published_landing_page_key(site_slug=site_slug)
+    if _use_local_storage():
+        local_path = Path(settings.LOCAL_STORAGE_DIR) / published_key
+        if local_path.exists():
+            local_path.unlink()
+        return
+    if not settings.HOSTING_S3_BUCKET_NAME:
+        raise ValueError("HOSTING_S3_BUCKET_NAME is required for hosting")
+    _get_s3_client().delete_object(
+        Bucket=settings.HOSTING_S3_BUCKET_NAME,
+        Key=published_key,
+    )
 
 
 def create_landing_page_preview_url(
