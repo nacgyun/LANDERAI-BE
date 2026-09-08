@@ -21,6 +21,7 @@ from app.schemas.request import (
     LandingPageVariantSelectionRequest,
     LandingPageVariantSelectionResponse,
 )
+from app.schemas.hosting import LandingPageHostingResponse, LandingPagePublishRequest
 from app.schemas.revision import (
     LandingPageRevision,
     LandingPageRevisionCreateRequest,
@@ -46,6 +47,7 @@ from app.services.revision_service import (
     list_revisions,
 )
 from app.services.workflow_service import start_landing_page_workflow
+from app.services.hosting_service import get_hosting, publish_revision, unpublish
 
 
 router = APIRouter(tags=["requests"])
@@ -204,6 +206,41 @@ def get_landing_page_revision_download_url_endpoint(
     current_user: dict = Depends(require_user_or_admin),
 ):
     return get_revision_download_url(request_id, revision_id, current_user)
+
+
+@router.post(
+    "/api/v1/requests/{request_id}/revisions/{revision_id}/publish",
+    response_model=LandingPageHostingResponse,
+)
+def publish_landing_page_revision_endpoint(
+    request_id: str,
+    revision_id: str,
+    request: LandingPagePublishRequest,
+    current_user: dict = Depends(require_user_or_admin),
+):
+    return publish_revision(request_id, revision_id, request, current_user)
+
+
+@router.get(
+    "/api/v1/requests/{request_id}/hosting",
+    response_model=LandingPageHostingResponse,
+)
+def get_landing_page_hosting_endpoint(
+    request_id: str,
+    current_user: dict = Depends(require_user_or_admin),
+):
+    return get_hosting(request_id, current_user)
+
+
+@router.delete(
+    "/api/v1/requests/{request_id}/hosting",
+    response_model=LandingPageHostingResponse,
+)
+def unpublish_landing_page_endpoint(
+    request_id: str,
+    current_user: dict = Depends(require_user_or_admin),
+):
+    return unpublish(request_id, current_user)
 
 
 @router.get(

@@ -217,6 +217,12 @@ def get_landing_page_request_status(
         "chosen_variant": request_item.get("chosen_variant"),
         "latest_revision_id": request_item.get("latest_revision_id"),
         "published_revision_id": request_item.get("published_revision_id"),
+        "site_id": request_item.get("site_id"),
+        "site_name": request_item.get("site_name"),
+        "site_slug": request_item.get("site_slug"),
+        "hosting_status": request_item.get("hosting_status"),
+        "published_url": request_item.get("published_url"),
+        "published_at": request_item.get("published_at"),
         "created_at": request_item.get("created_at"),
         "updated_at": request_item.get("updated_at"),
     }
