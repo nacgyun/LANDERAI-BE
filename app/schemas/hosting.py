@@ -3,7 +3,9 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 
 
-HostingStatus = Literal["UNPUBLISHED", "PUBLISHING", "PUBLISHED", "FAILED"]
+HostingStatus = Literal[
+    "UNPUBLISHED", "PUBLISHING", "PUBLISHED", "FAILED", "UNPUBLISHING", "UNPUBLISH_FAILED"
+]
 
 
 class LandingPagePublishRequest(BaseModel):
