@@ -6,16 +6,41 @@ from app.repositories.dynamodb_setup import get_core_table, get_request_table
 
 
 def reserve_site_slug(item: dict[str, Any]) -> bool:
+    """Reserve the address and attach it to its page in one transaction."""
+    core_table = get_core_table()
     try:
-        get_core_table().put_item(
-            Item=item,
-            ConditionExpression="attribute_not_exists(PK) AND attribute_not_exists(SK)",
-        )
+        core_table.meta.client.transact_write_items(TransactItems=[
+            {"Put": {
+                "TableName": core_table.name,
+                "Item": item,
+                "ConditionExpression": "attribute_not_exists(PK) OR request_id = :request_id",
+                "ExpressionAttributeValues": {":request_id": item["request_id"]},
+            }},
+            {"Update": {
+                "TableName": get_request_table().name,
+                "Key": {"request_id": item["request_id"]},
+                "UpdateExpression": "SET site_slug = :slug, site_name = :name",
+                "ConditionExpression": "attribute_exists(request_id) AND attribute_not_exists(site_slug)",
+                "ExpressionAttributeValues": {
+                    ":slug": item["site_slug"], ":name": item["project_name"],
+                },
+            }},
+        ])
         return True
     except ClientError as err:
-        if err.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+        reasons = {reason.get("Code", "None") for reason in err.response.get("CancellationReasons", [])}
+        if (err.response.get("Error", {}).get("Code") == "TransactionCanceledException"
+                and "ConditionalCheckFailed" in reasons
+                and reasons <= {"None", "ConditionalCheckFailed"}):
             return False
         raise
+
+
+def get_request_site(request_id: str) -> dict[str, Any]:
+    response = get_request_table().get_item(
+        Key={"request_id": request_id}, ConsistentRead=True,
+    )
+    return response.get("Item", {})
 
 
 def get_site_reservation(site_slug: str) -> dict[str, Any] | None:
@@ -34,8 +59,8 @@ def start_hosting_publish(
     published_url: str,
     operation_id: str,
     updated_at: str,
-) -> None:
-    get_request_table().update_item(
+) -> dict[str, Any]:
+    response = get_request_table().update_item(
         Key={"request_id": request_id},
         UpdateExpression=(
             "SET hosting_status = :publishing, site_id = :site_id, "
@@ -46,10 +71,14 @@ def start_hosting_publish(
         ),
         ConditionExpression=(
             "attribute_exists(request_id) AND "
-            "(attribute_not_exists(hosting_status) OR hosting_status <> :publishing)"
+            "(attribute_not_exists(hosting_status) OR "
+            "(hosting_status <> :publishing AND hosting_status <> :unpublishing "
+            "AND hosting_status <> :unpublish_failed))"
         ),
         ExpressionAttributeValues={
             ":publishing": "PUBLISHING",
+            ":unpublishing": "UNPUBLISHING",
+            ":unpublish_failed": "UNPUBLISH_FAILED",
             ":site_id": site_id,
             ":site_name": project_name,
             ":site_slug": site_slug,
@@ -57,7 +86,9 @@ def start_hosting_publish(
             ":operation_id": operation_id,
             ":updated_at": updated_at,
         },
+        ReturnValues="ALL_OLD",
     )
+    return response["Attributes"]
 
 
 def complete_hosting_publish(
@@ -114,7 +145,34 @@ def fail_hosting_publish(
     )
 
 
-def mark_hosting_unpublished(request_id: str, *, updated_at: str) -> None:
+def start_hosting_unpublish(
+    request_id: str, *, operation_id: str, updated_at: str,
+) -> dict[str, Any]:
+    """Acquire the same per-page exclusion used by publishing before touching S3."""
+    response = get_request_table().update_item(
+        Key={"request_id": request_id},
+        UpdateExpression=(
+            "SET hosting_status = :unpublishing, publish_operation_id = :operation_id, "
+            "hosting_updated_at = :updated_at, updated_at = :updated_at "
+            "REMOVE hosting_error_type, hosting_error_message"
+        ),
+        ConditionExpression=(
+            "attribute_exists(request_id) AND "
+            "(attribute_not_exists(hosting_status) OR "
+            "(hosting_status <> :publishing AND hosting_status <> :unpublishing))"
+        ),
+        ExpressionAttributeValues={
+            ":publishing": "PUBLISHING",
+            ":unpublishing": "UNPUBLISHING",
+            ":operation_id": operation_id,
+            ":updated_at": updated_at,
+        },
+        ReturnValues="ALL_NEW",
+    )
+    return response["Attributes"]
+
+
+def mark_hosting_unpublished(request_id: str, *, operation_id: str, updated_at: str) -> None:
     get_request_table().update_item(
         Key={"request_id": request_id},
         UpdateExpression=(
@@ -123,13 +181,11 @@ def mark_hosting_unpublished(request_id: str, *, updated_at: str) -> None:
             "REMOVE published_revision_id, published_at, publish_operation_id, "
             "hosting_error_type, hosting_error_message"
         ),
-        ConditionExpression=(
-            "attribute_exists(request_id) AND "
-            "(attribute_not_exists(hosting_status) OR hosting_status <> :publishing)"
-        ),
+        ConditionExpression="publish_operation_id = :operation_id AND hosting_status = :unpublishing",
         ExpressionAttributeValues={
             ":unpublished": "UNPUBLISHED",
-            ":publishing": "PUBLISHING",
+            ":unpublishing": "UNPUBLISHING",
+            ":operation_id": operation_id,
             ":updated_at": updated_at,
         },
     )
