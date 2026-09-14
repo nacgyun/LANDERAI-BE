@@ -1,6 +1,7 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic_core import PydanticCustomError
 
 
 HostingStatus = Literal[
@@ -9,16 +10,22 @@ HostingStatus = Literal[
 
 
 class LandingPagePublishRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     project_name: str | None = Field(None, min_length=1, max_length=80)
 
-    @field_validator("project_name")
+    @field_validator("project_name", mode="before")
     @classmethod
     def strip_project_name(cls, value: str | None) -> str | None:
         if value is None:
             return None
+        if not isinstance(value, str):
+            raise PydanticCustomError("project_name_type", "프로젝트 이름은 문자열이어야 합니다.")
         stripped = value.strip()
         if not stripped:
-            raise ValueError("프로젝트 이름은 빈 문자열일 수 없습니다.")
+            raise PydanticCustomError("project_name_empty", "프로젝트 이름은 빈 문자열일 수 없습니다.")
+        if len(stripped) > 80:
+            raise PydanticCustomError("project_name_length", "프로젝트 이름은 80자 이내로 입력해 주세요.")
         return stripped
 
 
