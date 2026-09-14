@@ -19,6 +19,9 @@ def _get_s3_client():
         "region_name": settings.AWS_DEFAULT_REGION or settings.REGION_NAME,
         "config": Config(
             signature_version="s3v4",
+            connect_timeout=3,
+            read_timeout=10,
+            retries={"mode": "standard", "total_max_attempts": 3},
             s3={"addressing_style": "virtual"},
         ),
     }
@@ -32,6 +35,9 @@ def _get_s3_client():
                 "aws_session_token": None,
                 "config": Config(
                     signature_version="s3v4",
+                    connect_timeout=3,
+                    read_timeout=10,
+                    retries={"mode": "standard", "total_max_attempts": 3},
                     s3={"addressing_style": "path"},
                 ),
             }
