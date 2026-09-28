@@ -1,4 +1,5 @@
 import re
+import logging
 import unicodedata
 import uuid
 from datetime import datetime, timezone
@@ -10,10 +11,11 @@ from app.config.settings import settings
 from app.repositories.hosting_repository import (
     complete_hosting_publish,
     fail_hosting_publish,
-    get_site_reservation,
+    get_request_site,
     mark_hosting_unpublished,
     reserve_site_slug,
     start_hosting_publish,
+    start_hosting_unpublish,
 )
 from app.repositories.request_repository import (
     get_landing_page_request,
@@ -32,6 +34,7 @@ RESERVED_SITE_SLUGS = {
 SITE_SLUG_MAX_LENGTH = 50
 SITE_SLUG_RANDOM_LENGTH = 6
 SITE_SLUG_RESERVATION_ATTEMPTS = 10
+logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
@@ -39,7 +42,11 @@ def _now() -> str:
 
 
 def _get_accessible_request(request_id: str, current_user: dict) -> dict:
-    request_item = get_landing_page_request(request_id)
+    try:
+        request_item = get_landing_page_request(request_id)
+    except (BotoCoreError, ClientError) as err:
+        logger.exception("Hosting request lookup failed request_id=%s", request_id)
+        raise HTTPException(status_code=503, detail="호스팅 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.") from err
     if request_item is None:
         raise HTTPException(status_code=404, detail="요청을 찾을 수 없습니다.")
     if (
@@ -80,11 +87,11 @@ def _reserve_slug(
 ) -> str:
     base_slug = normalize_site_slug(project_name)
     for attempt in range(SITE_SLUG_RESERVATION_ATTEMPTS):
+        assigned = get_request_site(request_id)
+        if assigned.get("site_slug"):
+            return assigned["site_slug"]
         suffix = "" if attempt == 0 else f"-{uuid.uuid4().hex[:SITE_SLUG_RANDOM_LENGTH]}"
         site_slug = f"{base_slug[:SITE_SLUG_MAX_LENGTH - len(suffix)]}{suffix}"
-        existing = get_site_reservation(site_slug)
-        if existing and existing.get("request_id") == request_id:
-            return site_slug
         reservation = {
             "PK": f"HOSTING_SITE#{site_slug}",
             "SK": "METADATA",
@@ -97,6 +104,9 @@ def _reserve_slug(
         }
         if reserve_site_slug(reservation):
             return site_slug
+    assigned = get_request_site(request_id)
+    if assigned.get("site_slug"):
+        return assigned["site_slug"]
     raise HTTPException(
         status_code=status.HTTP_409_CONFLICT,
         detail="사용 가능한 사이트 주소를 만들지 못했습니다. 다른 이름을 입력해 주세요.",
@@ -114,7 +124,10 @@ def _hosting_response(request_item: dict) -> dict:
         "published_url": request_item.get("published_url"),
         "published_at": request_item.get("published_at"),
         "error_type": request_item.get("hosting_error_type"),
-        "error_message": request_item.get("hosting_error_message"),
+        "error_message": (
+            "호스팅 작업을 완료하지 못했습니다. 상태를 확인하고 다시 시도해 주세요."
+            if request_item.get("hosting_error_message") else None
+        ),
     }
 
 
@@ -125,7 +138,15 @@ def publish_revision(
     current_user: dict,
 ) -> dict:
     request_item = _get_accessible_request(request_id, current_user)
-    revision = get_landing_page_revision(revision_id)
+    if request_item.get("hosting_status") in {"PUBLISHING", "UNPUBLISHING"}:
+        raise HTTPException(status_code=409, detail="다른 호스팅 작업이 진행 중입니다. 완료 후 다시 시도해 주세요.")
+    if request_item.get("hosting_status") == "UNPUBLISH_FAILED":
+        raise HTTPException(status_code=409, detail="게시 중단을 먼저 완료한 뒤 다시 게시해 주세요.")
+    try:
+        revision = get_landing_page_revision(revision_id)
+    except (BotoCoreError, ClientError) as err:
+        logger.exception("Hosting revision lookup failed request_id=%s", request_id)
+        raise HTTPException(status_code=503, detail="게시할 버전을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.") from err
     if revision is None or revision.get("request_id") != request_id:
         raise HTTPException(status_code=404, detail="게시할 버전을 찾을 수 없습니다.")
     if revision.get("status") != "COMPLETED":
@@ -134,34 +155,45 @@ def publish_revision(
     source_key = revision.get("html_s3_key")
     if not source_bucket or not source_key:
         raise HTTPException(status_code=409, detail="버전의 HTML 저장 정보가 없습니다.")
-    if not settings.HOSTING_BASE_DOMAIN:
-        raise HTTPException(status_code=503, detail="호스팅 도메인이 설정되지 않았습니다.")
-    if settings.APP_ENV != "local" and not settings.HOSTING_S3_BUCKET_NAME:
-        raise HTTPException(status_code=503, detail="호스팅 S3 버킷이 설정되지 않았습니다.")
-
     project_name = request_item.get("site_name") or publish_request.project_name
     if not project_name:
         raise HTTPException(
             status_code=422,
             detail="최초 호스팅에는 프로젝트 이름이 필요합니다.",
         )
+    if not request_item.get("site_slug"):
+        normalize_site_slug(project_name)
+    if not settings.HOSTING_BASE_DOMAIN:
+        raise HTTPException(status_code=503, detail="호스팅 도메인이 설정되지 않았습니다.")
+    if settings.APP_ENV != "local" and not settings.HOSTING_S3_BUCKET_NAME:
+        raise HTTPException(status_code=503, detail="호스팅 S3 버킷이 설정되지 않았습니다.")
 
     now = _now()
-    site_slug = request_item.get("site_slug") or _reserve_slug(
-        request_id=request_id,
-        user_id=request_item["user_id"],
-        project_name=project_name,
-        created_at=now,
-    )
+    try:
+        site_slug = request_item.get("site_slug") or _reserve_slug(
+            request_id=request_id,
+            user_id=request_item["user_id"],
+            project_name=project_name,
+            created_at=now,
+        )
+        assigned = get_request_site(request_id)
+        project_name = assigned.get("site_name") or project_name
+    except (BotoCoreError, ClientError) as err:
+        logger.exception("Hosting address reservation failed request_id=%s", request_id)
+        raise HTTPException(
+            status_code=503,
+            detail="사이트 주소를 확보하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+        ) from err
     site_id = request_item.get("site_id") or f"site_{uuid.uuid4().hex}"
     published_url = _build_published_url(site_slug)
     operation_id = f"publish_{uuid.uuid4().hex}"
-    fallback_status = "PUBLISHED" if request_item.get("published_revision_id") else "FAILED"
+    fallback_status = "PUBLISHED" if request_item.get("hosting_status") == "PUBLISHED" else "FAILED"
     published_object_written = False
+    operation_started = False
 
     try:
         try:
-            start_hosting_publish(
+            request_item = start_hosting_publish(
                 request_id,
                 site_id=site_id,
                 project_name=project_name,
@@ -170,11 +202,14 @@ def publish_revision(
                 operation_id=operation_id,
                 updated_at=now,
             )
+            operation_started = True
+            # Use the state at lock acquisition, not a read from before an unpublish.
+            fallback_status = "PUBLISHED" if request_item.get("hosting_status") == "PUBLISHED" else "FAILED"
         except ClientError as err:
             if err.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
                 raise HTTPException(
                     status_code=409,
-                    detail="다른 게시 작업이 진행 중입니다.",
+                    detail="호스팅 작업이 진행 중이거나 게시 중단을 완료해야 합니다. 상태를 확인해 주세요.",
                 ) from err
             raise
         publish_landing_page_html(
@@ -205,6 +240,10 @@ def publish_revision(
     except HTTPException:
         raise
     except (BotoCoreError, ClientError, OSError, ValueError) as err:
+        logger.exception("Hosting publish failed request_id=%s", request_id)
+        # A transport timeout does not prove that S3 rejected the write.
+        if isinstance(err, BotoCoreError):
+            fallback_status = "FAILED"
         if published_object_written:
             try:
                 previous_revision_id = request_item.get("published_revision_id")
@@ -226,25 +265,28 @@ def publish_revision(
                     )
                 else:
                     delete_published_landing_page(site_slug=site_slug)
+                    fallback_status = "FAILED"
             except (BotoCoreError, ClientError, OSError, ValueError) as restore_err:
+                fallback_status = "FAILED"
                 print(
                     "[Hosting] failed to restore published object "
                     f"request_id={request_id} site_slug={site_slug} error={restore_err}"
                 )
-        try:
-            fail_hosting_publish(
-                request_id,
-                operation_id=operation_id,
-                fallback_status=fallback_status,
-                error_type=type(err).__name__,
-                error_message=str(err),
-                updated_at=_now(),
-            )
-        except (BotoCoreError, ClientError):
-            pass
+        if operation_started:
+            try:
+                fail_hosting_publish(
+                    request_id,
+                    operation_id=operation_id,
+                    fallback_status=fallback_status,
+                    error_type="PUBLISH_FAILED",
+                    error_message="사이트 게시를 완료하지 못했습니다. 상태를 확인하고 다시 시도해 주세요.",
+                    updated_at=_now(),
+                )
+            except (BotoCoreError, ClientError):
+                logger.exception("Failed to record publish failure request_id=%s", request_id)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"사이트 게시에 실패했습니다. 원인: {err}",
+            detail="사이트 게시를 완료하지 못했습니다. 상태를 확인하고 다시 시도해 주세요.",
         ) from err
 
 
@@ -254,20 +296,32 @@ def get_hosting(request_id: str, current_user: dict) -> dict:
     except HTTPException:
         raise
     except (BotoCoreError, ClientError) as err:
-        raise HTTPException(status_code=503, detail=f"호스팅 상태 조회에 실패했습니다. 원인: {err}") from err
+        logger.exception("Hosting status lookup failed request_id=%s", request_id)
+        raise HTTPException(status_code=503, detail="호스팅 상태를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.") from err
 
 
 def unpublish(request_id: str, current_user: dict) -> dict:
-    request_item = _get_accessible_request(request_id, current_user)
-    if request_item.get("hosting_status") == "PUBLISHING":
-        raise HTTPException(status_code=409, detail="게시 작업이 진행 중입니다.")
-    site_slug = request_item.get("site_slug")
-    if not site_slug or not request_item.get("published_revision_id"):
-        return {**_hosting_response(request_item), "hosting_status": "UNPUBLISHED"}
+    operation_id = f"unpublish_{uuid.uuid4().hex}"
+    operation_started = False
     try:
-        delete_published_landing_page(site_slug=site_slug)
+        _get_accessible_request(request_id, current_user)
+        try:
+            request_item = start_hosting_unpublish(
+                request_id, operation_id=operation_id, updated_at=_now(),
+            )
+        except ClientError as err:
+            if err.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+                raise HTTPException(
+                    status_code=409, detail="다른 호스팅 작업이 진행 중이거나 요청이 변경되었습니다. 다시 확인해 주세요.",
+                ) from err
+            raise
+        operation_started = True
+        # Delete even without a revision pointer: a prior partial failure may have left HTML.
+        site_slug = request_item.get("site_slug")
+        if site_slug:
+            delete_published_landing_page(site_slug=site_slug)
         updated_at = _now()
-        mark_hosting_unpublished(request_id, updated_at=updated_at)
+        mark_hosting_unpublished(request_id, operation_id=operation_id, updated_at=updated_at)
         request_item.update(
             {
                 "hosting_status": "UNPUBLISHED",
@@ -279,7 +333,19 @@ def unpublish(request_id: str, current_user: dict) -> dict:
         )
         return _hosting_response(request_item)
     except (BotoCoreError, ClientError, OSError, ValueError) as err:
+        logger.exception("Hosting unpublish failed request_id=%s", request_id)
+        if operation_started:
+            try:
+                fail_hosting_publish(
+                    request_id, operation_id=operation_id,
+                    fallback_status="UNPUBLISH_FAILED",
+                    error_type="UNPUBLISH_FAILED",
+                    error_message="게시 중단을 완료하지 못했습니다. 게시 중단을 다시 시도해 주세요.",
+                    updated_at=_now(),
+                )
+            except (BotoCoreError, ClientError):
+                logger.exception("Failed to record unpublish failure request_id=%s", request_id)
         raise HTTPException(
             status_code=503,
-            detail=f"사이트 게시 중단에 실패했습니다. 원인: {err}",
+            detail="게시 중단을 완료하지 못했습니다. 상태를 확인하고 다시 시도해 주세요.",
         ) from err
