@@ -6,3 +6,8 @@ __pycache__/
 .local-storage/
 build/
 tests/
+benchmark-results/
+app/benchmark/
+benchmarks/
+docker-compose.dynamodb-benchmark.yml
+test_api.py

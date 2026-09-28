@@ -49,7 +49,7 @@ def _generate_validated_landing_page(
             )
 
         response = client.chat.completions.create(
-            model="gpt-5.6-luna",
+            model=settings.OPENAI_LANDING_PAGE_MODEL,
             messages=attempt_messages,
             response_format={"type": "json_object"},
         )

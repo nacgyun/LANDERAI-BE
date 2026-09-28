@@ -3,6 +3,7 @@ from typing import Any
 
 from boto3.dynamodb.conditions import Key
 
+from app.config.settings import settings
 from app.repositories.dynamodb_setup import get_request_table, get_result_table
 
 
@@ -34,16 +35,18 @@ def get_landing_page_request(request_id: str) -> dict[str, Any] | None:
     response = get_request_table().get_item(
         Key={
             "request_id": request_id,
-        }
+        },
+        ConsistentRead=True,
     )
     return response.get("Item")
 
 
 def list_landing_page_requests_by_user(user_id: str) -> list[dict[str, Any]]:
     table = get_request_table()
-    scan_kwargs: dict[str, Any] = {
-        "FilterExpression": "user_id = :user_id",
-        "ExpressionAttributeValues": {":user_id": user_id},
+    query_kwargs: dict[str, Any] = {
+        "IndexName": settings.LANDING_REQUEST_USER_INDEX_NAME,
+        "KeyConditionExpression": Key("user_id").eq(user_id),
+        "ScanIndexForward": False,
         "ProjectionExpression": (
             "request_id, project_id, industry, sub_industry, target, #style, goal, "
             "#status, current_step, progress, selection_status, chosen_variant, "
@@ -56,14 +59,14 @@ def list_landing_page_requests_by_user(user_id: str) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
 
     while True:
-        response = table.scan(**scan_kwargs)
+        response = table.query(**query_kwargs)
         items.extend(response.get("Items", []))
         last_key = response.get("LastEvaluatedKey")
         if not last_key:
             break
-        scan_kwargs["ExclusiveStartKey"] = last_key
+        query_kwargs["ExclusiveStartKey"] = last_key
 
-    return sorted(items, key=lambda item: item.get("created_at", ""), reverse=True)
+    return items
 
 
 def update_landing_page_request_state(
