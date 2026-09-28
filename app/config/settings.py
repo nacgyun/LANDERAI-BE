@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str | None = None
     OPENAI_API_KEY_PARAMETER_NAME: str | None = None
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
+    OPENAI_LANDING_PAGE_MODEL: str = "gpt-5.6-luna"
     OPENAI_INPUT_TOKEN_PRICE_PER_TOKEN: Decimal = Decimal("0.00000015")
     OPENAI_OUTPUT_TOKEN_PRICE_PER_TOKEN: Decimal = Decimal("0.0000006")
     DYNAMODB_ENDPOINT_URL: str = "http://localhost:8000"
@@ -17,6 +18,7 @@ class Settings(BaseSettings):
     AWS_DEFAULT_REGION: str | None = None
     CORE_TABLE_NAME: str = "coreTable"
     LANDING_REQUEST_TABLE_NAME: str = "LandingRequest"
+    LANDING_REQUEST_USER_INDEX_NAME: str = "UserIdCreatedAtIndex"
     LANDING_RESULT_TABLE_NAME: str = "LandingResult"
     RAG_DESIGN_PLAN_TABLE_NAME: str = "RAG_DESIGNPLAN"
     LANDING_PAGE_STATE_MACHINE_ARN: str | None = None
