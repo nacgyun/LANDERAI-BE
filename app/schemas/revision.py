@@ -34,6 +34,9 @@ class LandingPageRevision(BaseModel):
     status: RevisionStatus
     error_type: str | None = None
     error_message: str | None = None
+    revision_input_tokens: int | None = None
+    revision_output_tokens: int | None = None
+    revision_generation: dict | None = None
 
 
 class LandingPageRevisionListResponse(BaseModel):

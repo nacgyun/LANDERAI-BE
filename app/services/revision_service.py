@@ -21,7 +21,7 @@ from app.repositories.s3_repository import (
     upload_landing_page_revision_html,
 )
 from app.schemas.revision import LandingPageRevision, LandingPageRevisionCreateRequest
-from app.services.openai_service import revise_landing_page
+from app.revision_patching.hybrid import revise_landing_page_hybrid as revise_landing_page
 
 
 REVISION_PREVIEW_URL_EXPIRES_IN_SECONDS = 900
@@ -187,6 +187,7 @@ def process_landing_page_revision(
             html_s3_key=storage["html_s3_key"],
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            generation_metadata=getattr(generated, "metadata", {}),
             updated_at=_now(),
         )
     except Exception as err:

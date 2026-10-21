@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     REVISION_QUEUE_URL: str | None = None
     SQS_ENDPOINT_URL: str | None = None
     REVISION_MAX_RECEIVE_COUNT: int = 3
+    REVISION_PATCH_ENABLED: bool = True
+    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: str | None = None
     LOCAL_STORAGE_DIR: str = ".local-storage"
 
     APP_ENV: str = "local"

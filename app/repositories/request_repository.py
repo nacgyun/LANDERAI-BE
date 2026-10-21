@@ -358,6 +358,7 @@ def complete_landing_page_revision(
     html_s3_key: str,
     input_tokens: int,
     output_tokens: int,
+    generation_metadata: dict[str, Any] | None = None,
     updated_at: str,
 ) -> None:
     def serialize_map(value: dict[str, Any]) -> dict[str, Any]:
@@ -380,6 +381,7 @@ def complete_landing_page_revision(
                         "html_s3_key = :html_s3_key, "
                         "revision_input_tokens = :input_tokens, "
                         "revision_output_tokens = :output_tokens, "
+                        "revision_generation = :generation_metadata, "
                         "updated_at = :updated_at"
                     ),
                     "ConditionExpression": (
@@ -396,6 +398,7 @@ def complete_landing_page_revision(
                             ":html_s3_key": html_s3_key,
                             ":input_tokens": input_tokens,
                             ":output_tokens": output_tokens,
+                            ":generation_metadata": generation_metadata or {},
                             ":updated_at": updated_at,
                         }
                     ),

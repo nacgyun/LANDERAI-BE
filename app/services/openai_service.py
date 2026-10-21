@@ -29,12 +29,13 @@ def _generate_validated_landing_page(
     client: OpenAI,
     messages: list[dict[str, str]],
     empty_error_message: str,
+    max_attempts: int = LANDING_PAGE_VALIDATION_ATTEMPTS,
 ) -> tuple[LandingPageGenerationResponse, int, int]:
     total_input_tokens = 0
     total_output_tokens = 0
     validation_error: Exception | None = None
 
-    for attempt in range(LANDING_PAGE_VALIDATION_ATTEMPTS):
+    for attempt in range(max_attempts):
         attempt_messages = list(messages)
         if validation_error is not None:
             attempt_messages.append(
@@ -66,7 +67,7 @@ def _generate_validated_landing_page(
             return validated, total_input_tokens, total_output_tokens
         except (json.JSONDecodeError, ValueError) as err:
             validation_error = err
-            if attempt == LANDING_PAGE_VALIDATION_ATTEMPTS - 1:
+            if attempt == max_attempts - 1:
                 raise ValueError(
                     "AI 출력이 교정 재시도 후에도 HTML 검증을 통과하지 못했습니다: "
                     f"{err}"
@@ -164,6 +165,7 @@ def revise_landing_page(
     *,
     source_html: str,
     revision_prompt: str,
+    max_attempts: int = LANDING_PAGE_VALIDATION_ATTEMPTS,
 ) -> tuple[LandingPageGenerationResponse, int, int]:
     client = get_openai_client()
     return _generate_validated_landing_page(
@@ -179,4 +181,5 @@ def revise_landing_page(
             },
         ],
         empty_error_message="AI가 생성한 Revision JSON이 비어있습니다.",
+        max_attempts=max_attempts,
     )

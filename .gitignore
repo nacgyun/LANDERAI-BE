@@ -5,7 +5,8 @@ __pycache__/
 .venv
 .local-storage/
 build/
-tests/
+tests/*
+!tests/test_revision_patching.py
 benchmark-results/
 app/benchmark/
 benchmarks/
